@@ -1,0 +1,22 @@
+{{- if .Values.otelCollector.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "servicegraph.otelCollector.serviceName" . }}
+  namespace: {{ include "servicegraph.namespace" . }}
+  labels:
+    {{- include "servicegraph.otelCollector.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+    protocol: TCP
+  - name: otlp-http
+    port: 4318
+    targetPort: 4318
+    protocol: TCP
+  selector:
+    {{- include "servicegraph.otelCollector.selectorLabels" . | nindent 4 }}
+{{- end }}

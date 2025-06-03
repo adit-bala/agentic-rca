@@ -1,0 +1,47 @@
+{{- if .Values.beyla.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "servicegraph.fullname" . }}-beyla-config
+  namespace: {{ include "servicegraph.namespace" . }}
+  labels:
+    {{- include "servicegraph.beyla.labels" . | nindent 4 }}
+data:
+  beyla-config.yml: |
+    # Beyla configuration for distributed tracing only
+    log_level: info
+    
+    # Service discovery configuration
+    discovery:
+      services:
+        - k8s_namespace: {{ .Values.beyla.discovery.namespace | quote }}
+      exclude_services:
+        - exe_path: ".*alloy.*|.*otelcol.*|.*beyla.*"
+    
+    # Enable Kubernetes attributes
+    attributes:
+      kubernetes:
+        enable: true
+    
+    # Disable metrics export (tracing only)
+    prometheus_export:
+      port: 0
+    
+    # Disable network monitoring
+    network:
+      enable: false
+    
+    # Configure OTLP trace export to OTel Collector
+    otel_traces_export:
+      endpoint: http://{{ include "servicegraph.otelCollector.serviceName" . }}:4318
+      protocol: http/protobuf
+      insecure: true
+    
+    # Filter configuration to reduce noise
+    filter:
+      network:
+        k8s_dst_owner_name:
+          not_match: '{kube*,*jaeger-agent*,*prometheus*,*promtail*,*grafana-agent*,*otel-collector*}'
+        k8s_src_owner_name:
+          not_match: '{kube*,*jaeger-agent*,*prometheus*,*promtail*,*grafana-agent*,*otel-collector*}'
+{{- end }}

@@ -1,0 +1,48 @@
+{{- if .Values.beyla.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "servicegraph.fullname" . }}-beyla
+  namespace: {{ include "servicegraph.namespace" . }}
+  labels:
+    {{- include "servicegraph.beyla.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "servicegraph.beyla.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "servicegraph.beyla.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/beyla-configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "servicegraph.beyla.serviceAccountName" . }}
+      hostPID: true
+      hostNetwork: false
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      containers:
+      - name: beyla
+        image: {{ .Values.beyla.image.repository }}:{{ .Values.beyla.image.tag }}
+        imagePullPolicy: {{ .Values.beyla.image.pullPolicy }}
+        securityContext:
+          privileged: true
+        env:
+        - name: BEYLA_CONFIG_PATH
+          value: "/etc/beyla/config/beyla-config.yml"
+        volumeMounts:
+        - name: beyla-config
+          mountPath: /etc/beyla/config
+          readOnly: true
+        resources:
+          {{- toYaml .Values.beyla.resources | nindent 10 }}
+      volumes:
+      - name: beyla-config
+        configMap:
+          name: {{ include "servicegraph.fullname" . }}-beyla-config
+{{- end }}

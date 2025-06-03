@@ -1,0 +1,45 @@
+global:
+  namespace: "default"
+
+beyla:
+  enabled: true
+
+  image:
+    repository: grafana/beyla
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  discovery:
+    # -- Kubernetes namespace to monitor
+    namespace: "." # current namesapce
+
+otelCollector:
+  enabled: true
+
+  replicas: 1
+
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  export:
+    endpoint: ""
+    secretName: ""
+    headers: {}

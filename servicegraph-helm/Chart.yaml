@@ -1,0 +1,17 @@
+apiVersion: v2
+name: servicegraph-helm
+description: A Helm chart for distributed tracing with Grafana Beyla and OpenTelemetry Collector
+type: application
+version: 0.1.0
+appVersion: "1.0"
+keywords:
+  - observability
+  - tracing
+  - beyla
+  - opentelemetry
+maintainers:
+  - name: servicegraph-team
+home: https://github.com/your-org/servicegraph-helm
+sources:
+  - https://github.com/grafana/beyla
+  - https://github.com/open-telemetry/opentelemetry-collector

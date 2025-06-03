@@ -1,0 +1,74 @@
+{{- if .Values.otelCollector.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "servicegraph.fullname" . }}-otel-collector-config
+  namespace: {{ include "servicegraph.namespace" . }}
+  labels:
+    {{- include "servicegraph.otelCollector.labels" . | nindent 4 }}
+data:
+  otel-collector-config.yml: |
+    receivers:
+      # OTLP receiver for traces from Beyla
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      # Batch processor for better performance
+      batch:
+        timeout: 1s
+        send_batch_size: 1024
+        send_batch_max_size: 2048
+
+      # Memory limiter to prevent OOM
+      memory_limiter:
+        limit_mib: 400
+        spike_limit_mib: 100
+        check_interval: 5s
+
+    exporters:
+      {{- if .Values.otelCollector.export.endpoint }}
+      # OTLP gRPC exporter
+      otlp:
+        endpoint: {{ .Values.otelCollector.export.endpoint | quote }}
+        {{- if .Values.otelCollector.export.headers }}
+        headers:
+          {{- range $key, $value := .Values.otelCollector.export.headers }}
+          {{ $key }}: {{ $value | quote }}
+          {{- end }}
+        {{- end }}
+        {{- if .Values.otelCollector.export.secretName }}
+        auth:
+          authenticator: bearertokenauth
+        {{- end }}
+      {{- else }}
+      # Debug exporter (fallback when no endpoint specified)
+      debug:
+        verbosity: normal
+      {{- end }}
+
+    extensions:
+      # Health check extension
+      health_check:
+        endpoint: 0.0.0.0:13133
+      {{- if .Values.otelCollector.export.secretName }}
+      bearertokenauth:
+        token_file: /var/secrets/auth-token
+      {{- end }}
+
+    service:
+      extensions: [health_check{{- if .Values.otelCollector.export.secretName }}, bearertokenauth{{- end }}]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [{{ if .Values.otelCollector.export.endpoint }}otlp{{ else }}debug{{ end }}]
+
+      telemetry:
+        logs:
+          level: info
+{{- end }}
