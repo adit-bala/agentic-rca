@@ -32,7 +32,7 @@ data:
 
     exporters:
       {{- if .Values.otelCollector.export.endpoint }}
-      # OTLP gRPC exporter
+      # OTLP gRPC exporter (custom endpoint)
       otlp:
         endpoint: {{ .Values.otelCollector.export.endpoint | quote }}
         {{- if .Values.otelCollector.export.headers }}
@@ -45,6 +45,13 @@ data:
         auth:
           authenticator: bearertokenauth
         {{- end }}
+      {{- else if .Values.servicegraphBuilder.enabled }}
+      # OTLP gRPC exporter to servicegraph-builder
+      otlp:
+        endpoint: {{ printf "%s:%d" (include "servicegraph.servicegraphBuilder.serviceName" .) (.Values.servicegraphBuilder.service.port | int) | quote }}
+        tls:
+          insecure: true
+        compression: none
       {{- else }}
       # Debug exporter (fallback when no endpoint specified)
       debug:
@@ -66,7 +73,7 @@ data:
         traces:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [{{ if .Values.otelCollector.export.endpoint }}otlp{{ else }}debug{{ end }}]
+          exporters: [{{ if or .Values.otelCollector.export.endpoint .Values.servicegraphBuilder.enabled }}otlp{{ else }}debug{{ end }}]
 
       telemetry:
         logs:

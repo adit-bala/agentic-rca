@@ -1,5 +1,5 @@
 global:
-  namespace: "default"
+  namespace: ""
 
 beyla:
   enabled: true
@@ -43,3 +43,24 @@ otelCollector:
     endpoint: ""
     secretName: ""
     headers: {}
+
+servicegraphBuilder:
+  enabled: true
+
+  replicas: 1
+
+  image:
+    repository: servicegraph-builder
+    tag: "v2"
+    pullPolicy: Never
+
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+  service:
+    port: 8083

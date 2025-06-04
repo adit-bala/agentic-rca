@@ -1,0 +1,39 @@
+{{- if .Values.servicegraphBuilder.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "servicegraph.fullname" . }}-servicegraph-builder
+  namespace: {{ include "servicegraph.namespace" . }}
+  labels:
+    {{- include "servicegraph.servicegraphBuilder.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.servicegraphBuilder.replicas }}
+  selector:
+    matchLabels:
+      {{- include "servicegraph.servicegraphBuilder.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "servicegraph.servicegraphBuilder.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+      - name: servicegraph-builder
+        image: {{ .Values.servicegraphBuilder.image.repository }}:{{ .Values.servicegraphBuilder.image.tag }}
+        imagePullPolicy: {{ .Values.servicegraphBuilder.image.pullPolicy }}
+        ports:
+        - name: otlp-grpc
+          containerPort: 8083
+          protocol: TCP
+        resources:
+          {{- toYaml .Values.servicegraphBuilder.resources | nindent 10 }}
+        livenessProbe:
+          tcpSocket:
+            port: 8083
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          tcpSocket:
+            port: 8083
+          initialDelaySeconds: 5
+          periodSeconds: 10
+{{- end }}

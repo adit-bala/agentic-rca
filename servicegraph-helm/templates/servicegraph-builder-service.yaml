@@ -1,0 +1,18 @@
+{{- if .Values.servicegraphBuilder.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "servicegraph.servicegraphBuilder.serviceName" . }}
+  namespace: {{ include "servicegraph.namespace" . }}
+  labels:
+    {{- include "servicegraph.servicegraphBuilder.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+  - name: otlp-grpc
+    port: {{ .Values.servicegraphBuilder.service.port }}
+    targetPort: 8083
+    protocol: TCP
+  selector:
+    {{- include "servicegraph.servicegraphBuilder.selectorLabels" . | nindent 4 }}
+{{- end }}

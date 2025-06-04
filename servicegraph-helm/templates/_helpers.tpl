@@ -102,3 +102,26 @@ OTel Collector service name
 {{- define "servicegraph.otelCollector.serviceName" -}}
 {{- printf "%s-otel-collector" (include "servicegraph.fullname" .) }}
 {{- end }}
+
+{{/*
+ServiceGraph Builder labels
+*/}}
+{{- define "servicegraph.servicegraphBuilder.labels" -}}
+{{ include "servicegraph.labels" . }}
+app.kubernetes.io/component: servicegraph-builder
+{{- end }}
+
+{{/*
+ServiceGraph Builder selector labels
+*/}}
+{{- define "servicegraph.servicegraphBuilder.selectorLabels" -}}
+{{ include "servicegraph.selectorLabels" . }}
+app.kubernetes.io/component: servicegraph-builder
+{{- end }}
+
+{{/*
+ServiceGraph Builder service name
+*/}}
+{{- define "servicegraph.servicegraphBuilder.serviceName" -}}
+{{- printf "%s-servicegraph-builder" (include "servicegraph.fullname" .) }}
+{{- end }}

@@ -7,7 +7,7 @@ This guide shows how to deploy the simple microservices application for testing 
 - Docker
 - Kubernetes cluster (Minikube, K3s, or similar)
 - kubectl configured
-- Go 1.21+ (for local development)
+- Go 1.24+ (for local development)
 
 ## Local Development
 
