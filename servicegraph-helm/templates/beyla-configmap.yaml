@@ -17,6 +17,9 @@ data:
         - k8s_namespace: {{ .Values.beyla.discovery.namespace | quote }}
       exclude_services:
         - exe_path: ".*alloy.*|.*otelcol.*|.*beyla.*"
+        - k8s_namespace: "kube-system"
+        - k8s_namespace: "kube-public"
+        - k8s_namespace: "kube-node-lease"
     
     # Enable Kubernetes attributes
     attributes:

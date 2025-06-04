@@ -18,8 +18,7 @@ beyla:
       memory: 128Mi
 
   discovery:
-    # -- Kubernetes namespace to monitor
-    namespace: "." # current namesapce
+    namespace: "simple-microservices"
 
 otelCollector:
   enabled: true
@@ -51,7 +50,7 @@ servicegraphBuilder:
 
   image:
     repository: servicegraph-builder
-    tag: "v2"
+    tag: "v3"
     pullPolicy: Never
 
   resources:
