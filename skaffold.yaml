@@ -42,14 +42,3 @@ deploy:
           - ./servicegraph-helm/values.yaml
   kubectl:
     defaultNamespace: simple-microservices
-
-portForward:
-  - resourceType: service
-    resourceName: gateway
-    namespace: simple-microservices
-    port: 8080
-    localPort: 8080
-  - resourceType: deployment
-    resourceName: servicegraph-builder
-    namespace: tracing
-    port: 8083

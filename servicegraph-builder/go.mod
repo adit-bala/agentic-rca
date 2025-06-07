@@ -3,6 +3,7 @@ module servicegraph-builder
 go 1.24.0
 
 require (
+	github.com/neo4j/neo4j-go-driver/v5 v5.15.0
 	github.com/rs/zerolog v1.34.0
 	google.golang.org/grpc v1.72.2
 )
