@@ -14,10 +14,9 @@ cleanup() {
     echo "Stopping minikube..."
     minikube stop
     
-    # Stop and remove Neo4j container
-    echo "Stopping Neo4j..."
-    docker stop neo4j 2>/dev/null || true
-    docker rm neo4j 2>/dev/null || true
+    # Stop docker-compose services
+    echo "Stopping docker-compose services..."
+    docker-compose down
     
     echo "Cleanup complete!"
     exit 0
@@ -26,17 +25,16 @@ cleanup() {
 # Set up trap for Ctrl+C
 trap cleanup SIGINT SIGTERM
 
-# Start Neo4j locally
-echo "Starting Neo4j locally..."
+# Check if required tools are installed
+echo "Checking required tools..."
+command -v docker >/dev/null 2>&1 || { echo "Docker is required but not installed. Aborting."; exit 1; }
+command -v docker-compose >/dev/null 2>&1 || { echo "Docker Compose is required but not installed. Aborting."; exit 1; }
+command -v minikube >/dev/null 2>&1 || { echo "Minikube is required but not installed. Aborting."; exit 1; }
+command -v skaffold >/dev/null 2>&1 || { echo "Skaffold is required but not installed. Aborting."; exit 1; }
 
-docker run -d \
-    --name neo4j \
-    --network host \
-    -e NEO4J_AUTH=neo4j/password \
-    -e NEO4J_apoc_export_file_enabled=true \
-    -e NEO4J_apoc_import_file_enabled=true \
-    -e NEO4J_apoc_import_file_use__neo4j__config=true \
-    neo4j:5.15.0
+# Start Neo4j and frontend using docker-compose
+echo "Starting Neo4j and frontend..."
+docker-compose up -d
 
 # Wait for Neo4j to be ready
 echo "Waiting for Neo4j to be ready..."
@@ -46,6 +44,14 @@ until curl -s http://localhost:7474 > /dev/null; do
 done
 echo "Neo4j is ready!"
 
+# Wait for frontend to be ready
+echo "Waiting for frontend to be ready..."
+until curl -s http://localhost:3000 > /dev/null; do
+    echo "Waiting for frontend..."
+    sleep 2
+done
+echo "Frontend is ready!"
+
 # Start minikube
 echo "Starting minikube..."
 minikube start --driver=docker
@@ -53,3 +59,6 @@ minikube start --driver=docker
 # Run the application
 echo "Starting application with skaffold..."
 skaffold dev
+
+# Keep the script running until Ctrl+C
+wait
