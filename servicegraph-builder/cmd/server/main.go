@@ -230,6 +230,11 @@ func (s *TraceServiceServer) Export(ctx context.Context, req *coltracepb.ExportT
 
 				log.Info().Any("enriched_span", enriched).Msg("Enriched span")
 
+				if enriched.ServiceName == "unknown" {
+					log.Error().Msg("cannot determine service name")
+					continue
+				}
+
 				// Write to Neo4j
 				if err := neo4jClient.WriteSpan(ctx, &enriched); err != nil {
 					log.Error().Err(err).Msg("Failed to write span to Neo4j")
@@ -255,7 +260,7 @@ func isHealthSpan(span models.EnrichedSpan) bool {
 	// 2) Fallback to inspecting the operation name
 	op := strings.ToLower(span.OperationName)
 	if strings.Contains(op, "health") ||
-		strings.Contains(op, "liveness") ||
+		strings.Contains(op, "live") ||
 		strings.Contains(op, "ready") {
 		return true
 	}
