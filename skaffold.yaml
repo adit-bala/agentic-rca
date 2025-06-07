@@ -1,0 +1,55 @@
+apiVersion: skaffold/v4beta7
+kind: Config
+metadata:
+  name: tracing-demo
+
+build:
+  local:
+    push: false
+  artifacts:
+    - image: servicegraph-builder
+      context: ./servicegraph-builder
+      docker:
+        dockerfile: docker/Dockerfile.servicegraph
+    - image: simple-microservices/gateway
+      context: ./simple-microservices
+      docker:
+        dockerfile: docker/Dockerfile.gateway
+    - image: simple-microservices/user-service
+      context: ./simple-microservices
+      docker:
+        dockerfile: docker/Dockerfile.user-service
+    - image: simple-microservices/data-service
+      context: ./simple-microservices
+      docker:
+        dockerfile: docker/Dockerfile.data-service
+
+manifests:
+  rawYaml:
+    - simple-microservices/k8s/namespace.yaml
+    - simple-microservices/k8s/gateway.yaml
+    - simple-microservices/k8s/user-service.yaml
+    - simple-microservices/k8s/data-service.yaml
+
+deploy:
+  helm:
+    releases:
+      - name: tracing-demo
+        chartPath: ./servicegraph-helm
+        namespace: tracing
+        createNamespace: true
+        valuesFiles:
+          - ./servicegraph-helm/values.yaml
+  kubectl:
+    defaultNamespace: simple-microservices
+
+portForward:
+  - resourceType: service
+    resourceName: gateway
+    namespace: simple-microservices
+    port: 8080
+    localPort: 8080
+  - resourceType: deployment
+    resourceName: servicegraph-builder
+    namespace: tracing
+    port: 8083

@@ -1,0 +1,32 @@
+{{- if .Values.servicegraphBuilder.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "servicegraph.fullname" . }}-servicegraph-builder
+  namespace: {{ include "servicegraph.namespace" . }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "servicegraph.fullname" . }}-servicegraph-builder
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "servicegraph.fullname" . }}-servicegraph-builder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "servicegraph.fullname" . }}-servicegraph-builder
+subjects:
+- kind: ServiceAccount
+  name: {{ include "servicegraph.fullname" . }}-servicegraph-builder
+  namespace: {{ include "servicegraph.namespace" . }}
+{{- end }} 

@@ -10,8 +10,8 @@ keywords:
   - beyla
   - opentelemetry
 maintainers:
-  - name: servicegraph-team
-home: https://github.com/your-org/servicegraph-helm
+  - name: Adit
+home: https://github.com/adit-bala/agentic-rca
 sources:
   - https://github.com/grafana/beyla
   - https://github.com/open-telemetry/opentelemetry-collector

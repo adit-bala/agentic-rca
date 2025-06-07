@@ -16,6 +16,7 @@ spec:
       labels:
         {{- include "servicegraph.servicegraphBuilder.selectorLabels" . | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "servicegraph.fullname" . }}-servicegraph-builder
       containers:
       - name: servicegraph-builder
         image: {{ .Values.servicegraphBuilder.image.repository }}:{{ .Values.servicegraphBuilder.image.tag }}
@@ -24,9 +25,6 @@ spec:
         - name: otlp-grpc
           containerPort: 8083
           protocol: TCP
-        volumeMounts:
-        - name: trace-data
-          mountPath: /data/traces
         resources:
           {{- toYaml .Values.servicegraphBuilder.resources | nindent 10 }}
         livenessProbe:
@@ -39,7 +37,4 @@ spec:
             port: 8083
           initialDelaySeconds: 5
           periodSeconds: 10
-      volumes:
-      - name: trace-data
-        emptyDir: {}
 {{- end }}

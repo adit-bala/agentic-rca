@@ -50,8 +50,8 @@ servicegraphBuilder:
 
   image:
     repository: servicegraph-builder
-    tag: "v3"
-    pullPolicy: Never
+    tag: "latest"
+    pullPolicy: IfNotPresent
 
   resources:
     limits:
