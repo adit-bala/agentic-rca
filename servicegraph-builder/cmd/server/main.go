@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	cache "servicegraph-builder/pkg/cache"
 
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
@@ -22,16 +23,25 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+const (
+	CACHE_TTL = 600
+)
+
+var (
+	seenSpans = cache.New()
+	k8sClient kubernetes.Interface
+)
+
 type TraceServiceServer struct {
 	coltracepb.UnimplementedTraceServiceServer
 }
 
-type SimpleSpan struct {
-	Name       string
+type Span struct {
+	OperationName string
 	Attributes map[string]string
 }
 
-type k8sMeta struct {
+type K8sMetadata struct {
 	Namespace string
 	OwnerKind string
 	OwnerName string
@@ -39,18 +49,14 @@ type k8sMeta struct {
 }
 
 type EnrichedSpan struct {
-	SimpleSpan
-	K8sMeta       k8sMeta
+	Span
+	ServiceName string
 	HashableName  string
-	OperationName string
 	CallerService string
 	CalleeService string
+	K8sMetadata       K8sMetadata
 }
 
-var (
-	seenSpans = make(map[string]struct{})
-	k8sClient kubernetes.Interface
-)
 
 func initK8sClient() error {
 	if k8sClient != nil {
@@ -84,166 +90,141 @@ func initK8sClient() error {
 	return nil
 }
 
-func convertProtoSpan(p *tracepb.Span) SimpleSpan {
-	out := SimpleSpan{
-		Name:       p.Name,
-		Attributes: make(map[string]string, len(p.Attributes)),
-	}
-
-	for _, kv := range p.Attributes {
-		out.Attributes[kv.Key] = kv.Value.GetStringValue()
-	}
-
-	return out
-}
-
 func addK8sMeta(span *EnrichedSpan, resourceAttrs map[string]interface{}) error {
-	if ns, ok := resourceAttrs["k8s.namespace.name"]; ok {
-		if any, ok := ns.(*commonpb.AnyValue); ok {
-			span.K8sMeta.Namespace = any.GetStringValue()
-		}
-	}
+    // namespace from OTLP
+    if ns, ok := resourceAttrs["k8s.namespace.name"]; ok {
+        if any, ok := ns.(*commonpb.AnyValue); ok {
+            span.K8sMetadata.Namespace = any.GetStringValue()
+        }
+    }
 
-	// Prefer Deployment info; fall back to ReplicaSet if needed
-	if dep, ok := resourceAttrs["k8s.deployment.name"]; ok {
-		if any, ok := dep.(*commonpb.AnyValue); ok {
-			span.K8sMeta.OwnerKind = "Deployment"
-			span.K8sMeta.OwnerName = any.GetStringValue()
-		}
-	} else if rs, ok := resourceAttrs["k8s.replicaset.name"]; ok {
-		if any, ok := rs.(*commonpb.AnyValue); ok {
-			span.K8sMeta.OwnerKind = "ReplicaSet"
-			span.K8sMeta.OwnerName = any.GetStringValue()
-		}
-	}
+    // Deployment / ReplicaSet from OTLP
+    switch {
+    case resourceAttrs["k8s.deployment.name"] != nil:
+        any := resourceAttrs["k8s.deployment.name"].(*commonpb.AnyValue)
+        span.K8sMetadata.OwnerKind, span.K8sMetadata.OwnerName = "Deployment", any.GetStringValue()
+    case resourceAttrs["k8s.replicaset.name"] != nil:
+        any := resourceAttrs["k8s.replicaset.name"].(*commonpb.AnyValue)
+        span.K8sMetadata.OwnerKind, span.K8sMetadata.OwnerName = "ReplicaSet", any.GetStringValue()
+    }
 
-	// If we already discovered a workload kind/name, we’re done
-	if span.K8sMeta.OwnerKind != "" {
-		return nil
-	}
+    // If we already have workload data, stop here
+    if span.K8sMetadata.OwnerKind != "" {
+        return nil
+    }
 
-	ns := span.K8sMeta.Namespace // may be empty; empty means “all namespaces”
-	svcs, err := k8sClient.CoreV1().Services(ns).List(
-		context.TODO(),
-		metav1.ListOptions{
-			FieldSelector: "metadata.name=" + span.Name,
-		},
-	)
-	if err != nil || len(svcs.Items) == 0 {
-		return err // nothing found
-	}
-	svc := svcs.Items[0]
+    // ---- Fallback: Service → Pods → ownerReferences chain ----
+    svcName := span.ServiceName
+    if svcName == "unknown" {
+        svcName = span.OperationName // worst-case fallback
+    }
+    ns := span.K8sMetadata.Namespace // empty string = all namespaces
 
-	selector := labels.SelectorFromSet(svc.Spec.Selector).String()
-	pods, err := k8sClient.CoreV1().Pods(svc.Namespace).List(
-		context.TODO(),
-		metav1.ListOptions{LabelSelector: selector},
-	)
-	if err != nil || len(pods.Items) == 0 {
-		return err
-	}
+    svcs, err := k8sClient.CoreV1().Services(ns).List(
+        context.TODO(),
+        metav1.ListOptions{FieldSelector: "metadata.name=" + svcName},
+    )
+    if err != nil || len(svcs.Items) == 0 {
+        return err
+    }
+    svc := svcs.Items[0]
 
-	// Walk one Pod's ownerReferences up to the top-level controller
-	owner := pods.Items[0].OwnerReferences
-	for len(owner) > 0 && owner[0].Kind != "" {
-		ref := owner[0]
-		span.K8sMeta = k8sMeta{
-			Namespace: svc.Namespace,
-			OwnerKind: ref.Kind,
-			OwnerName: ref.Name,
-			OwnerUID:  string(ref.UID),
-		}
+    selector := labels.SelectorFromSet(svc.Spec.Selector).String()
+    pods, err := k8sClient.CoreV1().Pods(svc.Namespace).List(
+        context.TODO(),
+        metav1.ListOptions{LabelSelector: selector},
+    )
+    if err != nil || len(pods.Items) == 0 {
+        return err
+    }
 
-		// Stop at the first controller (Deployment, DaemonSet, Job, etc.)
-		if ref.Controller != nil && *ref.Controller {
-			break
-		}
-
-		// Otherwise follow ReplicaSet → Deployment chain if present
-		rs, err := k8sClient.AppsV1().
-			ReplicaSets(svc.Namespace).
-			Get(context.TODO(), ref.Name, metav1.GetOptions{})
-		if err != nil || rs == nil || len(rs.OwnerReferences) == 0 {
-			break
-		}
-		owner = rs.OwnerReferences
-	}
-	return nil
+    // Walk ownerReferences
+    owner := pods.Items[0].OwnerReferences
+    for len(owner) > 0 {
+        ref := owner[0]
+        span.K8sMetadata = K8sMetadata{
+            Namespace: svc.Namespace,
+            OwnerKind: ref.Kind,
+            OwnerName: ref.Name,
+            OwnerUID:  string(ref.UID),
+        }
+        if ref.Controller != nil && *ref.Controller {
+            break // reached Deployment / DaemonSet / Job
+        }
+        rs, _ := k8sClient.AppsV1().
+            ReplicaSets(svc.Namespace).
+            Get(context.TODO(), ref.Name, metav1.GetOptions{})
+        if rs == nil || len(rs.OwnerReferences) == 0 {
+            break
+        }
+        owner = rs.OwnerReferences
+    }
+    return nil
 }
 
-func enrichSpan(simple SimpleSpan, resourceAttrs map[string]interface{}) EnrichedSpan {
-	caller := "unknown"
-	callee := "unknown"
+func enrichSpan(p *tracepb.Span, resourceAttrs map[string]interface{}) EnrichedSpan {
+    span := Span{
+        OperationName: p.Name,
+        Attributes:    make(map[string]string, len(p.Attributes)),
+    }
+    for _, kv := range p.Attributes {
+        span.Attributes[kv.Key] = kv.Value.GetStringValue()
+    }
 
-	// 1) If this is an incoming call, OTLP will carry "client.address"
-	if rawClient, ok := simple.Attributes["client.address"]; ok {
-		caller = rawClient
-		if rawSvc, ok3 := resourceAttrs["service.name"]; ok3 {
-			if anySvc, ok4 := rawSvc.(*commonpb.AnyValue); ok4 {
-				callee = anySvc.GetStringValue()
-			}
-		}
-	}
+    // Service name from resource attrs
+    serviceName := "unknown"
+    if raw, ok := resourceAttrs["service.name"]; ok {
+        if any, ok2 := raw.(*commonpb.AnyValue); ok2 {
+            serviceName = any.GetStringValue()
+        }
+    }
 
-	// 2) Otherwise, if this is an outgoing call, OTLP will carry "server.address"
-	if rawServer, ok := simple.Attributes["server.address"]; ok {
-		full := rawServer
-		parts := strings.SplitN(full, ":", 2)
-		callee = parts[0]
-		if rawSvc, ok3 := resourceAttrs["service.name"]; ok3 {
-			if anySvc, ok4 := rawSvc.(*commonpb.AnyValue); ok4 {
-				caller = anySvc.GetStringValue()
-			}
-		}
-	}
+    caller, callee := "unknown", "unknown"
 
-	return EnrichedSpan{
-		SimpleSpan:    simple,
-		HashableName:  fmt.Sprintf("%s-%s-%s", simple.Name, caller, callee),
-		OperationName: simple.Name,
-		CallerService: caller,
-		CalleeService: callee,
-	}
+    if c, ok := span.Attributes["client.address"]; ok {
+        caller, callee = c, serviceName
+    }
+    if s, ok := span.Attributes["server.address"]; ok {
+        parts := strings.SplitN(s, ":", 2)
+        callee, caller = parts[0], serviceName
+    }
+
+    hash := fmt.Sprintf("%s-%s-%s", serviceName,caller, callee)
+
+    return EnrichedSpan{
+        Span:          span,
+        ServiceName:   serviceName,
+        HashableName:  hash,
+        CallerService: caller,
+        CalleeService: callee,
+    }
 }
 
 func (s *TraceServiceServer) Export(ctx context.Context, req *coltracepb.ExportTraceServiceRequest) (*coltracepb.ExportTraceServiceResponse, error) {
-	log.Info().Msg("Received trace data")
-
 	for _, resource := range req.ResourceSpans {
 		globalAttrs := make(map[string]interface{}, len(resource.Resource.Attributes))
 		for _, attr := range resource.Resource.Attributes {
 			globalAttrs[attr.Key] = attr.Value
 		}
-		log.Info().
-			Interface("global_attributes", globalAttrs).
-			Msg("Resource-level attributes")
 
 		for _, scope := range resource.ScopeSpans {
 			for _, pspan := range scope.Spans {
-				log.Info().Str("span_name", pspan.Name).Msg("Processing span")
-				enriched := enrichSpan(convertProtoSpan(pspan), globalAttrs)
+				enriched := enrichSpan(pspan, globalAttrs)
 
-				// if _, ok := seenSpans[enriched.HashableName]; ok {
-				// 	log.Info().Str("span_name", enriched.HashableName).Msg("Skipping already seen span")
-				// 	continue
-				// } else {
-				// 	log.Info().Str("span_name", enriched.HashableName).Msg("New span, writing to database")
-				// 	seenSpans[enriched.HashableName] = struct{}{}
-				// }
+				if isHealthSpan(enriched) { continue }
+
+				if _, ok := seenSpans.Get(enriched.HashableName); ok {
+					continue
+				} else {
+					log.Info().Str("span_name", enriched.HashableName).Msg("New span, writing to database")
+					seenSpans.Set(enriched.HashableName, enriched, CACHE_TTL)
+				}
 
 				if err := addK8sMeta(&enriched, globalAttrs); err != nil {
 					log.Error().Err(err).Msg("cannot add k8s meta")
 				}
 
-				log.Info().
-					Str("span_name", enriched.HashableName).
-					Str("caller", enriched.CallerService).
-					Str("callee", enriched.CalleeService).
-					Str("k8s_namespace", enriched.K8sMeta.Namespace).
-					Str("k8s_owner_kind", enriched.K8sMeta.OwnerKind).
-					Str("k8s_owner_name", enriched.K8sMeta.OwnerName).
-					Str("k8s_owner_uid", enriched.K8sMeta.OwnerUID).
-					Msg("Enriched span")
+				log.Info().Any("enriched_span", enriched).Msg("Enriched span")
 
 				// TODO: Write to database
 			}
@@ -251,6 +232,28 @@ func (s *TraceServiceServer) Export(ctx context.Context, req *coltracepb.ExportT
 	}
 
 	return &coltracepb.ExportTraceServiceResponse{}, nil
+}
+
+// isHealthSpan returns true for common k8s health/liveness/readiness probes.
+func isHealthSpan(span EnrichedSpan) bool {
+    // 1) Check the http.route attribute if present
+    if route, ok := span.Attributes["http.route"]; ok {
+        if strings.HasPrefix(route, "/health") ||
+           strings.HasPrefix(route, "/livez")  ||
+           strings.HasPrefix(route, "/readyz") {
+            return true
+        }
+    }
+
+    // 2) Fallback to inspecting the operation name
+    op := strings.ToLower(span.OperationName)
+    if strings.Contains(op, "health")   ||
+       strings.Contains(op, "liveness")||
+       strings.Contains(op, "ready") {
+        return true
+    }
+
+    return false
 }
 
 func main() {
