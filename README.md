@@ -3,5 +3,6 @@
 platform for automated root cause analysis using AI agents and knowledge graphs
 
 - ebpf & opentelemetry for distributed tracing to build a service dependency graph
-- TODO: graph viz
+- graph viz
+- TODO: integration with GitHub, AlertManager, Metrics (?), Logging (?)
 - TODO: agent architechture
