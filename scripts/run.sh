@@ -31,6 +31,14 @@ command -v docker >/dev/null 2>&1 || { echo "Docker is required but not installe
 command -v docker-compose >/dev/null 2>&1 || { echo "Docker Compose is required but not installed. Aborting."; exit 1; }
 command -v minikube >/dev/null 2>&1 || { echo "Minikube is required but not installed. Aborting."; exit 1; }
 command -v skaffold >/dev/null 2>&1 || { echo "Skaffold is required but not installed. Aborting."; exit 1; }
+command -v helm >/dev/null 2>&1 || { echo "Helm is required but not installed. Aborting."; exit 1; }
+
+# Check for Observe token
+if [ -z "$OBSERVE_TOKEN" ]; then
+    echo "Error: OBSERVE_TOKEN environment variable is not set"
+    echo "Please set it with: export OBSERVE_TOKEN=your_token_here"
+    exit 1
+fi
 
 # Start Neo4j and frontend using docker-compose
 echo "Starting Neo4j and frontend..."
@@ -55,6 +63,29 @@ echo "Frontend is ready!"
 # Start minikube
 echo "Starting minikube..."
 minikube start --driver=docker
+
+# Setup Observe
+echo "Setting up Observe..."
+kubectl create namespace observe
+kubectl -n observe create secret generic agent-credentials --from-literal=OBSERVE_TOKEN="$OBSERVE_TOKEN"
+
+kubectl annotate secret agent-credentials -n observe \
+  meta.helm.sh/release-name=observe-agent \
+  meta.helm.sh/release-namespace=observe
+
+kubectl label secret agent-credentials -n observe \
+  app.kubernetes.io/managed-by=Helm
+
+helm repo add observe https://observeinc.github.io/observe-agent-helm
+helm repo update
+
+helm install observe-agent observe/agent -n observe \
+--set observe.collectionEndpoint.value="https://119137983744.collect.observeinc.com/" \
+--set cluster.name="observe-agent-monitored-cluster" \
+--set node.containers.logs.enabled="true" \
+--set application.prometheusScrape.enabled="false" \
+--set node.forwarder.enabled="false" \
+--set node.forwarder.metrics.outputFormat="otel"
 
 # Run the application
 echo "Starting application with skaffold..."
