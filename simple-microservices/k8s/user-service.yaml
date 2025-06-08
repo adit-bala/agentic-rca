@@ -14,6 +14,10 @@ spec:
     metadata:
       labels:
         app: user-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: user-service
@@ -21,6 +25,7 @@ spec:
         imagePullPolicy: Never  # For local development with minikube
         ports:
         - containerPort: 8081
+        - containerPort: 9090
         env:
         - name: PORT
           value: "8081"
@@ -60,4 +65,7 @@ spec:
   - port: 8081
     targetPort: 8081
     protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
   type: ClusterIP

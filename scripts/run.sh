@@ -77,6 +77,7 @@ kubectl label secret agent-credentials -n observe \
   app.kubernetes.io/managed-by=Helm
 
 helm repo add observe https://observeinc.github.io/observe-agent-helm
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
 
 helm install observe-agent observe/agent -n observe \
@@ -86,6 +87,10 @@ helm install observe-agent observe/agent -n observe \
 --set application.prometheusScrape.enabled="false" \
 --set node.forwarder.enabled="false" \
 --set node.forwarder.metrics.outputFormat="otel"
+
+helm install prometheus \
+  prometheus-community/kube-prometheus-stack \
+  --namespace monitoring --create-namespace
 
 # Run the application
 echo "Starting application with skaffold..."
