@@ -24,8 +24,10 @@ spec:
         image: simple-microservices/gateway:latest
         imagePullPolicy: Never  # For local development with minikube
         ports:
-        - containerPort: 8080
-        - containerPort: 9090
+        - name: http
+          containerPort: 8080
+        - name: metrics
+          containerPort: 9090
         env:
         - name: PORT
           value: "8080"

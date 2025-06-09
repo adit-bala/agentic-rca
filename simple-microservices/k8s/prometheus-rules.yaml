@@ -1,0 +1,89 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: microservices-alerts
+  namespace: monitoring
+spec:
+  groups:
+    - name: microservices
+      rules:
+        # High Latency Alerts
+        - alert: HighRequestLatency
+          expr: |
+            histogram_quantile(0.95, sum(rate(api_request_latency_seconds_bucket[5m])) by (service, endpoint, le)) > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High request latency detected"
+            description: "Service {{ $labels.service }} endpoint {{ $labels.endpoint }} has 95th percentile latency above 1s for 5m"
+
+        # Error Rate Alerts
+        - alert: HighErrorRate
+          expr: |
+            sum(rate(errors_total[5m])) by (service, type) / sum(rate(api_requests_total[5m])) by (service) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "High error rate detected"
+            description: "Service {{ $labels.service }} has error rate above 5% for error type {{ $labels.type }}"
+
+        # Service Availability Alerts
+        - alert: ServiceDown
+          expr: |
+            up{job=~"gateway|user-service|data-service"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Service is down"
+            description: "Service {{ $labels.job }} has been down for more than 1m"
+
+        # Unusual Request Pattern Alerts
+        - alert: UnusualRequestPattern
+          expr: |
+            abs(
+              rate(api_requests_total[5m]) 
+              - 
+              avg_over_time(rate(api_requests_total[1h])[5m:])
+            ) > 2 * stddev_over_time(rate(api_requests_total[1h])[5m:])
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Unusual request pattern detected"
+            description: "Service {{ $labels.service }} endpoint {{ $labels.endpoint }} has unusual request pattern"
+
+        # Active Connections Alerts
+        - alert: HighActiveConnections
+          expr: |
+            active_connections > 1000
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High number of active connections"
+            description: "Service {{ $labels.service }} has more than 1000 active connections for 5m"
+
+        # Data Service Processing Alerts
+        - alert: DataProcessingErrors
+          expr: |
+            sum(rate(errors_total{service="data-service",type="invalid_request"}[5m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Data processing errors detected"
+            description: "Data service is experiencing processing errors"
+
+        # User Service Status Alerts
+        - alert: UserServiceProcessingErrors
+          expr: |
+            sum(rate(errors_total{service="user-service",type="data_service_error"}[5m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "User service processing errors"
+            description: "User service is experiencing errors when calling data service" 

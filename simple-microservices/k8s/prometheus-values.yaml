@@ -1,0 +1,17 @@
+prometheus:
+  prometheusSpec:
+    additionalScrapeConfigsSecret:
+      enabled: true
+      name: prometheus-additional-scrape-configs
+      key: prometheus-additional.yaml
+    ruleSelector:
+      matchLabels:
+        release: prometheus
+        role: alert-rules
+    podMonitorSelector: {}
+    serviceMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+    serviceMonitorNamespaceSelector: {}
+
+alertmanager:
+  configSecret: alertmanager-config 

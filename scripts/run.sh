@@ -88,9 +88,27 @@ helm install observe-agent observe/agent -n observe \
 --set node.forwarder.enabled="false" \
 --set node.forwarder.metrics.outputFormat="otel"
 
+# Create monitoring namespace
+kubectl create namespace monitoring
+
+# Apply Prometheus scrape configuration
+echo "Applying Prometheus scrape configuration..."
+kubectl apply -f ../simple-microservices/k8s/prometheus-scrape-config.yaml
+
+# Apply AlertManager configuration
+echo "Applying AlertManager configuration..."
+kubectl apply -f ../simple-microservices/k8s/alertmanager-config.yaml
+
+# Apply Prometheus rules
+echo "Applying Prometheus rules..."
+kubectl apply -f ../simple-microservices/k8s/prometheus-rules.yaml
+
+# Install kube-prometheus-stack with our configurations
+echo "Installing kube-prometheus-stack..."
 helm install prometheus \
   prometheus-community/kube-prometheus-stack \
-  --namespace monitoring --create-namespace
+  --namespace monitoring \
+  -f ../simple-microservices/k8s/prometheus-values.yaml
 
 # Run the application
 echo "Starting application with skaffold..."
