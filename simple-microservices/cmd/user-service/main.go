@@ -9,25 +9,30 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	httpClient "simple-microservices/pkg/http"
+	"simple-microservices/pkg/metrics"
 	"simple-microservices/pkg/models"
 )
 
 type UserService struct {
-	users           map[int]*models.User
-	usersMutex      sync.RWMutex
-	nextID          int
+	users             map[int]*models.User
+	usersMutex        sync.RWMutex
+	nextID            int
 	dataServiceClient *httpClient.Client
-	startTime       time.Time
+	startTime         time.Time
 }
 
 func main() {
 	// Setup logging
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
+	// Start metrics server
+	metrics.Start(log.Logger)
 
 	// Get service URLs from environment or use defaults
 	dataServiceURL := getEnv("DATA_SERVICE_URL", "http://localhost:8082")
@@ -73,15 +78,20 @@ func (s *UserService) healthHandler(w http.ResponseWriter, r *http.Request) {
 		Timestamp: time.Now(),
 		Uptime:    time.Since(s.startTime).String(),
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
 func (s *UserService) createUserHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	var req models.CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("Invalid request body")
+		metrics.Inc(metrics.ErrorTotal, prometheus.Labels{
+			"service": "user-service",
+			"type":    "invalid_request",
+		}, 1)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -97,7 +107,7 @@ func (s *UserService) createUserHandler(w http.ResponseWriter, r *http.Request) 
 	s.usersMutex.Lock()
 	userID := s.nextID
 	s.nextID++
-	
+
 	user := &models.User{
 		ID:        userID,
 		Name:      req.Name,
@@ -120,12 +130,30 @@ func (s *UserService) createUserHandler(w http.ResponseWriter, r *http.Request) 
 	var processedData models.ProcessedData
 	if err := s.dataServiceClient.Post(ctx, "/process", processReq, &processedData); err != nil {
 		log.Error().Err(err).Int("user_id", userID).Msg("Failed to process user data")
+		metrics.Inc(metrics.ErrorTotal, prometheus.Labels{
+			"service": "user-service",
+			"type":    "data_service_error",
+		}, 1)
 		user.Status = "error"
 	} else {
 		log.Info().Int("user_id", userID).Msg("User data processed successfully")
 		user.Status = "active"
 		user.ProcessedData = &processedData
 	}
+
+	// Record metrics
+	metrics.Observe(metrics.APIRequestLatency, prometheus.Labels{
+		"service":  "user-service",
+		"endpoint": "/users",
+		"method":   "POST",
+	}, time.Since(start).Seconds())
+
+	metrics.Inc(metrics.APIRequestTotal, prometheus.Labels{
+		"service":  "user-service",
+		"endpoint": "/users",
+		"method":   "POST",
+		"status":   user.Status,
+	}, 1)
 
 	log.Info().Int("user_id", userID).Str("status", user.Status).Msg("User creation completed")
 
@@ -135,12 +163,17 @@ func (s *UserService) createUserHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *UserService) getUserHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	vars := mux.Vars(r)
 	userIDStr := vars["id"]
-	
+
 	userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
 		log.Error().Err(err).Str("user_id", userIDStr).Msg("Invalid user ID")
+		metrics.Inc(metrics.ErrorTotal, prometheus.Labels{
+			"service": "user-service",
+			"type":    "invalid_user_id",
+		}, 1)
 		http.Error(w, "Invalid user ID", http.StatusBadRequest)
 		return
 	}
@@ -156,15 +189,34 @@ func (s *UserService) getUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	if !exists {
 		log.Warn().Int("user_id", userID).Msg("User not found")
+		metrics.Inc(metrics.ErrorTotal, prometheus.Labels{
+			"service": "user-service",
+			"type":    "user_not_found",
+		}, 1)
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
+
+	// Record metrics
+	metrics.Observe(metrics.APIRequestLatency, prometheus.Labels{
+		"service":  "user-service",
+		"endpoint": "/users/{id}",
+		"method":   "GET",
+	}, time.Since(start).Seconds())
+
+	metrics.Inc(metrics.APIRequestTotal, prometheus.Labels{
+		"service":  "user-service",
+		"endpoint": "/users/{id}",
+		"method":   "GET",
+		"status":   "success",
+	}, 1)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(user)
 }
 
 func (s *UserService) listUsersHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	log.Info().Msg("Listing all users")
 
 	// Add small delay
@@ -177,6 +229,24 @@ func (s *UserService) listUsersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	s.usersMutex.RUnlock()
 
+	// Record metrics
+	metrics.Observe(metrics.APIRequestLatency, prometheus.Labels{
+		"service":  "user-service",
+		"endpoint": "/users",
+		"method":   "GET",
+	}, time.Since(start).Seconds())
+
+	metrics.Inc(metrics.APIRequestTotal, prometheus.Labels{
+		"service":  "user-service",
+		"endpoint": "/users",
+		"method":   "GET",
+		"status":   "success",
+	}, 1)
+
+	metrics.Set(metrics.ActiveConnections, prometheus.Labels{
+		"service": "user-service",
+	}, float64(len(users)))
+
 	log.Info().Int("count", len(users)).Msg("Retrieved users")
 
 	w.Header().Set("Content-Type", "application/json")
@@ -187,7 +257,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		traceID := r.Header.Get("X-Trace-ID")
-		
+
 		log.Info().
 			Str("method", r.Method).
 			Str("path", r.URL.Path).

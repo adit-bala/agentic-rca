@@ -60,7 +60,8 @@ spec:
   selector:
     app: data-service
   ports:
-  - port: 8082
+  - name: http
+    port: 8082
     targetPort: 8082
     protocol: TCP
   - name: metrics

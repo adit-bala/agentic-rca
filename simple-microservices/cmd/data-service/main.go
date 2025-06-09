@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"simple-microservices/pkg/metrics"
 	"simple-microservices/pkg/models"
 )
 
@@ -24,6 +26,9 @@ func main() {
 	// Setup logging
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
+	// Start metrics server
+	metrics.Start(log.Logger)
 
 	service := &DataService{
 		startTime: time.Now(),
@@ -62,15 +67,20 @@ func (s *DataService) healthHandler(w http.ResponseWriter, r *http.Request) {
 		Timestamp: time.Now(),
 		Uptime:    time.Since(s.startTime).String(),
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
 func (s *DataService) processDataHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	var req models.ProcessDataRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("Invalid request body")
+		metrics.Inc(metrics.ErrorTotal, prometheus.Labels{
+			"service": "data-service",
+			"type":    "invalid_request",
+		}, 1)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -83,8 +93,6 @@ func (s *DataService) processDataHandler(w http.ResponseWriter, r *http.Request)
 		Str("trace_id", traceID).
 		Msg("Processing user data")
 
-	start := time.Now()
-
 	// Simulate complex data processing with multiple steps
 	log.Info().Int("user_id", req.UserID).Msg("Step 1: Validating data")
 	time.Sleep(time.Duration(rand.Intn(100)+50) * time.Millisecond)
@@ -94,7 +102,7 @@ func (s *DataService) processDataHandler(w http.ResponseWriter, r *http.Request)
 	time.Sleep(time.Duration(rand.Intn(75)+25) * time.Millisecond)
 
 	log.Info().Int("user_id", req.UserID).Msg("Step 3: Calculating metrics")
-	metrics := s.calculateMetrics(req.Name, req.Email)
+	complexity := s.calculateMetrics(req.Name, req.Email)
 	time.Sleep(time.Duration(rand.Intn(150)+100) * time.Millisecond)
 
 	log.Info().Int("user_id", req.UserID).Msg("Step 4: Finalizing processing")
@@ -109,15 +117,33 @@ func (s *DataService) processDataHandler(w http.ResponseWriter, r *http.Request)
 		Metrics: models.DataMetrics{
 			ProcessingTimeMs: int(processingTime.Milliseconds()),
 			DataSize:         len(req.Name) + len(req.Email),
-			Complexity:       metrics,
+			Complexity:       complexity,
 		},
 	}
+
+	// Record metrics
+	metrics.Observe(metrics.APIRequestLatency, prometheus.Labels{
+		"service":  "data-service",
+		"endpoint": "/process",
+		"method":   "POST",
+	}, time.Since(start).Seconds())
+
+	metrics.Inc(metrics.APIRequestTotal, prometheus.Labels{
+		"service":  "data-service",
+		"endpoint": "/process",
+		"method":   "POST",
+		"status":   "success",
+	}, 1)
+
+	metrics.Set(metrics.ActiveConnections, prometheus.Labels{
+		"service": "data-service",
+	}, float64(1)) // Each processing request is an active connection
 
 	log.Info().
 		Int("user_id", req.UserID).
 		Dur("processing_time", processingTime).
 		Str("data_hash", dataHash).
-		Float64("complexity", metrics).
+		Float64("complexity", complexity).
 		Msg("Data processing completed")
 
 	w.Header().Set("Content-Type", "application/json")
@@ -127,9 +153,9 @@ func (s *DataService) processDataHandler(w http.ResponseWriter, r *http.Request)
 
 func (s *DataService) statusHandler(w http.ResponseWriter, r *http.Request) {
 	status := map[string]interface{}{
-		"service":           "data-service",
-		"status":            "healthy",
-		"uptime":            time.Since(s.startTime).String(),
+		"service":            "data-service",
+		"status":             "healthy",
+		"uptime":             time.Since(s.startTime).String(),
 		"processed_requests": rand.Intn(1000) + 100,
 		"avg_processing_ms":  rand.Intn(200) + 50,
 		"cache_hit_ratio":    0.75 + rand.Float64()*0.2,
@@ -151,7 +177,7 @@ func (s *DataService) calculateMetrics(name, email string) float64 {
 	nameComplexity := float64(len(name)) * 0.1
 	emailComplexity := float64(len(email)) * 0.15
 	randomFactor := rand.Float64() * 2.0
-	
+
 	complexity := nameComplexity + emailComplexity + randomFactor
 	return complexity
 }
@@ -160,7 +186,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		traceID := r.Header.Get("X-Trace-ID")
-		
+
 		log.Info().
 			Str("method", r.Method).
 			Str("path", r.URL.Path).

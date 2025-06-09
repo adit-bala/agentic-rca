@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	httpClient "simple-microservices/pkg/http"
+	"simple-microservices/pkg/metrics"
 	"simple-microservices/pkg/models"
 )
 
@@ -25,6 +27,9 @@ func main() {
 	// Setup logging
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
+	// Start metrics server
+	metrics.Start(log.Logger)
 
 	// Get service URLs from environment or use defaults
 	userServiceURL := getEnv("USER_SERVICE_URL", "http://localhost:8081")
@@ -75,9 +80,14 @@ func (g *Gateway) healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Gateway) createUserHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	var req models.CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("Invalid request body")
+		metrics.Inc(metrics.ErrorTotal, prometheus.Labels{
+			"service": "gateway",
+			"type":    "invalid_request",
+		}, 1)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -93,11 +103,29 @@ func (g *Gateway) createUserHandler(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	if err := g.userServiceClient.Post(ctx, "/users", req, &user); err != nil {
 		log.Error().Err(err).Msg("Failed to create user")
+		metrics.Inc(metrics.ErrorTotal, prometheus.Labels{
+			"service": "gateway",
+			"type":    "user_service_error",
+		}, 1)
 		http.Error(w, "Failed to create user", http.StatusInternalServerError)
 		return
 	}
 
 	log.Info().Int("user_id", user.ID).Str("status", user.Status).Msg("User created successfully")
+
+	// Record metrics
+	metrics.Observe(metrics.APIRequestLatency, prometheus.Labels{
+		"service":  "gateway",
+		"endpoint": "/users",
+		"method":   "POST",
+	}, time.Since(start).Seconds())
+
+	metrics.Inc(metrics.APIRequestTotal, prometheus.Labels{
+		"service":  "gateway",
+		"endpoint": "/users",
+		"method":   "POST",
+		"status":   "success",
+	}, 1)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -105,6 +133,7 @@ func (g *Gateway) createUserHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Gateway) getUserHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	vars := mux.Vars(r)
 	userID := vars["id"]
 
@@ -115,15 +144,34 @@ func (g *Gateway) getUserHandler(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	if err := g.userServiceClient.Get(ctx, "/users/"+userID, &user); err != nil {
 		log.Error().Err(err).Str("user_id", userID).Msg("Failed to get user")
+		metrics.Inc(metrics.ErrorTotal, prometheus.Labels{
+			"service": "gateway",
+			"type":    "user_not_found",
+		}, 1)
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
+
+	// Record metrics
+	metrics.Observe(metrics.APIRequestLatency, prometheus.Labels{
+		"service":  "gateway",
+		"endpoint": "/users/{id}",
+		"method":   "GET",
+	}, time.Since(start).Seconds())
+
+	metrics.Inc(metrics.APIRequestTotal, prometheus.Labels{
+		"service":  "gateway",
+		"endpoint": "/users/{id}",
+		"method":   "GET",
+		"status":   "success",
+	}, 1)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(user)
 }
 
 func (g *Gateway) listUsersHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	ctx := r.Context()
 
 	log.Info().Msg("Listing users via gateway")
@@ -131,9 +179,27 @@ func (g *Gateway) listUsersHandler(w http.ResponseWriter, r *http.Request) {
 	var users []models.User
 	if err := g.userServiceClient.Get(ctx, "/users", &users); err != nil {
 		log.Error().Err(err).Msg("Failed to list users")
+		metrics.Inc(metrics.ErrorTotal, prometheus.Labels{
+			"service": "gateway",
+			"type":    "list_users_error",
+		}, 1)
 		http.Error(w, "Failed to list users", http.StatusInternalServerError)
 		return
 	}
+
+	// Record metrics
+	metrics.Observe(metrics.APIRequestLatency, prometheus.Labels{
+		"service":  "gateway",
+		"endpoint": "/users",
+		"method":   "GET",
+	}, time.Since(start).Seconds())
+
+	metrics.Inc(metrics.APIRequestTotal, prometheus.Labels{
+		"service":  "gateway",
+		"endpoint": "/users",
+		"method":   "GET",
+		"status":   "success",
+	}, 1)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(users)
