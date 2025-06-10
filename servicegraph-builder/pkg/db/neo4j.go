@@ -50,6 +50,13 @@ func (c *Neo4jClient) Close(ctx context.Context) error {
 // WriteSpan upserts the caller & callee service nodes and a CALLS relationship
 // uniquely identified by span.HashableName, setting all desired properties.
 func (c *Neo4jClient) WriteSpan(ctx context.Context, span *models.EnrichedSpan) error {
+	// Skip if caller and callee are the same service or if either is unknown
+	if span.CallerService == span.CalleeService ||
+		span.CallerService == "unknown" ||
+		span.CalleeService == "unknown" {
+		return nil
+	}
+
 	// Create a write-mode session tied to the caller's context
 	session := c.driver.NewSession(ctx, neo4j.SessionConfig{
 		AccessMode: neo4j.AccessModeWrite,
@@ -65,8 +72,9 @@ func (c *Neo4jClient) WriteSpan(ctx context.Context, span *models.EnrichedSpan) 
 	_, err = session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (interface{}, error) {
 		// 1) Merge caller and callee service nodes (requires unique constraint on :Service(name))
 		_, err := tx.Run(ctx, `
-			MERGE (:Service { name: $caller })
-			MERGE (:Service { name: $callee })
+			MERGE (caller:Service { name: $caller })
+			MERGE (callee:Service { name: $callee })
+			WHERE caller <> callee
 		`, map[string]interface{}{
 			"caller": span.CallerService,
 			"callee": span.CalleeService,
@@ -76,10 +84,11 @@ func (c *Neo4jClient) WriteSpan(ctx context.Context, span *models.EnrichedSpan) 
 		}
 
 		// 2) merge the single CALLS relationship and overwrite its props
-        _, err = tx.Run(
-            ctx,
-            `MATCH  (c:Service {name:$caller}),
+		_, err = tx.Run(
+			ctx,
+			`MATCH  (c:Service {name:$caller}),
                    (d:Service {name:$callee})
+             WHERE c <> d
              MERGE  (c)-[r:CALLS]->(d)
              SET    r.operation       = $operation,
                     r.attributesJson  = $attributesJson,
@@ -88,17 +97,17 @@ func (c *Neo4jClient) WriteSpan(ctx context.Context, span *models.EnrichedSpan) 
                     r.k8s_owner_name  = $k8sOwnerName,
                     r.k8s_owner_uid   = $k8sOwnerUID,
                     r.last_seen       = datetime()`,
-            map[string]any{
-                "caller":        span.CallerService,
-                "callee":        span.CalleeService,
-                "operation":     span.OperationName,
-                "attributesJson": string(attributesJSON),
-                "k8sNamespace":  span.K8sMetadata.Namespace,
-                "k8sOwnerKind":  span.K8sMetadata.OwnerKind,
-                "k8sOwnerName":  span.K8sMetadata.OwnerName,
-                "k8sOwnerUID":   span.K8sMetadata.OwnerUID,
-            },
-        )
+			map[string]any{
+				"caller":         span.CallerService,
+				"callee":         span.CalleeService,
+				"operation":      span.OperationName,
+				"attributesJson": string(attributesJSON),
+				"k8sNamespace":   span.K8sMetadata.Namespace,
+				"k8sOwnerKind":   span.K8sMetadata.OwnerKind,
+				"k8sOwnerName":   span.K8sMetadata.OwnerName,
+				"k8sOwnerUID":    span.K8sMetadata.OwnerUID,
+			},
+		)
 		if err != nil {
 			return nil, err
 		}
