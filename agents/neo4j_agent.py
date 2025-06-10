@@ -1,8 +1,8 @@
 from agents import Agent, ModelSettings, function_tool, AgentOutputSchema
 from neo4j import GraphDatabase
-from pydantic import BaseModel, Field, ConfigDict
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List
+from models import ServiceNode, K8sMetadata, ServiceGraph, ServiceGraphResponse, ServiceDependencies
 
 PROMPT = (
     "You are a Neo4j agent specialized in service dependency lookups. "
@@ -21,41 +21,6 @@ PROMPT = (
     "Given a service name, query the dependency graph for that service. "
     "Return the list of upstream services that depend on this service, and the downstream services that this service depends on."
 )
-
-class K8sMetadata(BaseModel):
-    """Relevant Kubernetes object metadata."""    
-    namespace: str
-    labels: Optional[Dict[str, str]] = None
-    annotations: Optional[Dict[str, str]] = None
-    owner_kind: Optional[str] = None
-    owner_name: Optional[str] = None
-    owner_uid: Optional[str] = None
-
-
-class ServiceNode(BaseModel):
-    """A node in the service graph."""    
-    name: str = Field(..., description="Logical service name")
-    k8s: K8sMetadata
-
-
-class ServiceGraph(BaseModel):
-    """
-    Response model returned by your API:
-    - current: the focal service
-    - upstream: callers that invoke `current`
-    - downstream: callees invoked by `current`
-    """    
-    current: ServiceNode
-    upstream: List[ServiceNode]
-    downstream: List[ServiceNode]
-
-class ServiceGraphResponse(BaseModel):    
-    services: List[ServiceGraph]
-
-class ServiceDependencies(BaseModel):
-    """Model representing a service's upstream and downstream dependencies."""    
-    upstream: List[str] = Field(..., description="List of service names that call this service")
-    downstream: List[str] = Field(..., description="List of service names that this service calls")
 
 class Neo4jClient:
     def __init__(self):
