@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# Parse command line arguments
+FRESH=false
+for arg in "$@"; do
+    case $arg in
+        --fresh)
+        FRESH=true
+        shift
+        ;;
+    esac
+done
+
 # Function to cleanup resources
 cleanup() {
     echo "Cleaning up resources..."
@@ -16,7 +27,11 @@ cleanup() {
     
     # Stop docker-compose services
     echo "Stopping docker-compose services..."
-    docker-compose down
+    if [ "$FRESH" = true ]; then
+        docker-compose down -v
+    else
+        docker-compose down
+    fi
     
     echo "Cleanup complete!"
     exit 0
@@ -42,6 +57,10 @@ fi
 
 # Start Neo4j and frontend using docker-compose
 echo "Starting Neo4j and frontend..."
+if [ "$FRESH" = true ]; then
+    echo "Starting with fresh database..."
+    docker-compose down -v
+fi
 docker-compose up -d
 
 # Wait for Neo4j to be ready
