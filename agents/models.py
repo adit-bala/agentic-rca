@@ -39,6 +39,8 @@ class ServiceNode(BaseModel):
     """A node in the service graph."""    
     name: str = Field(..., description="Logical service name")
     k8s: K8sMetadata
+    operation: Optional[str] = Field(None, description="The operation name (e.g. HTTP method + path)")
+    attributes: Optional[Dict[str, str]] = Field(None, description="Additional attributes/metadata for the service")
 
 
 class ServiceGraph(BaseModel):

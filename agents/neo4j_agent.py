@@ -3,6 +3,7 @@ from neo4j import GraphDatabase
 import os
 from typing import Dict, List
 from models import ServiceNode, K8sMetadata, ServiceGraph, ServiceGraphResponse, ServiceDependencies
+import json
 
 PROMPT = (
     "You are a Neo4j agent specialized in service dependency lookups. "
@@ -86,20 +87,32 @@ def get_current_node_metadata(service_name: str) -> ServiceNode:
                        s.k8s_namespace as namespace,
                        s.k8s_owner_kind as owner_kind,
                        s.k8s_owner_name as owner_name,
-                       s.k8s_owner_uid as owner_uid
+                       s.k8s_owner_uid as owner_uid,
+                       s.operation as operation,
+                       s.attributesJson as attributesJson
             """, service_name=service_name).single()
             
             if not result:
                 raise ValueError(f"Service {service_name} not found")
             
+            # Parse attributes JSON if present
+            attributes = {}
+            if result["attributesJson"]:
+                try:
+                    attributes = json.loads(result["attributesJson"])
+                except json.JSONDecodeError:
+                    print(f"Warning: Could not parse attributes JSON for service {service_name}")
+            
             return ServiceNode(
                 name=result["name"],
                 k8s=K8sMetadata(
-                    namespace=result["namespace"] or "default",
+                    namespace=result["namespace"] or "unknown",
                     owner_kind=result["owner_kind"] or "Unknown",
                     owner_name=result["owner_name"] or service_name,
                     owner_uid=result["owner_uid"] or "unknown"
-                )
+                ),
+                operation=result["operation"],
+                attributes=attributes
             )
     except Exception as e:
         print(f"[Neo4jAgent] Error getting node metadata: {str(e)}")

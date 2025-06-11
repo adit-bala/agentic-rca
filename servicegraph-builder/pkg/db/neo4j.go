@@ -73,10 +73,28 @@ func (c *Neo4jClient) WriteSpan(ctx context.Context, span *models.EnrichedSpan) 
 		// Create / ensure nodes
 		_, e := tx.Run(ctx, `
 			MERGE (caller:Service {name:$caller})
+			SET   caller.k8s_namespace  = $k8sNamespace,
+			      caller.k8s_owner_kind = $k8sOwnerKind,
+			      caller.k8s_owner_name = $k8sOwnerName,
+			      caller.k8s_owner_uid  = $k8sOwnerUID,
+			      caller.operation      = $operation,
+			      caller.attributesJson = $attributesJson
 			MERGE (callee:Service {name:$callee})
+			SET   callee.k8s_namespace  = $k8sNamespace,
+			      callee.k8s_owner_kind = $k8sOwnerKind,
+			      callee.k8s_owner_name = $k8sOwnerName,
+			      callee.k8s_owner_uid  = $k8sOwnerUID,
+			      callee.operation      = $operation,
+			      callee.attributesJson = $attributesJson
 		`, map[string]any{
-			"caller": caller,
-			"callee": callee,
+			"caller":         caller,
+			"callee":         callee,
+			"k8sNamespace":   span.K8sMetadata.Namespace,
+			"k8sOwnerKind":   span.K8sMetadata.OwnerKind,
+			"k8sOwnerName":   span.K8sMetadata.OwnerName,
+			"k8sOwnerUID":    span.K8sMetadata.OwnerUID,
+			"operation":      span.OperationName,
+			"attributesJson": string(attributesJSON),
 		})
 		if e != nil {
 			return nil, e
@@ -87,22 +105,9 @@ func (c *Neo4jClient) WriteSpan(ctx context.Context, span *models.EnrichedSpan) 
 			MATCH (c:Service {name:$caller}),
 			      (d:Service {name:$callee})
 			MERGE (c)-[r:CALLS]->(d)
-			SET   r.operation      = $operation,
-			      r.attributesJson = $attributesJson,
-			      r.k8s_namespace  = $k8sNamespace,
-			      r.k8s_owner_kind = $k8sOwnerKind,
-			      r.k8s_owner_name = $k8sOwnerName,
-			      r.k8s_owner_uid  = $k8sOwnerUID,
-			      r.last_seen      = datetime()
 		`, map[string]any{
-			"caller":         caller,
-			"callee":         callee,
-			"operation":      span.OperationName,
-			"attributesJson": string(attributesJSON),
-			"k8sNamespace":   span.K8sMetadata.Namespace,
-			"k8sOwnerKind":   span.K8sMetadata.OwnerKind,
-			"k8sOwnerName":   span.K8sMetadata.OwnerName,
-			"k8sOwnerUID":    span.K8sMetadata.OwnerUID,
+			"caller": caller,
+			"callee": callee,
 		})
 		return nil, e
 	})
