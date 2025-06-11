@@ -6,6 +6,7 @@ from agents import Runner, custom_span, gen_trace_id, trace
 from printer import Printer
 from neo4j_agent import neo4j_agent
 from k8s_agent import k8s_agent
+from observe_agent import observe_agent
 from models import AlertGroup, ServiceGraphResponse
 
 class RCA_Manager:
@@ -34,8 +35,11 @@ class RCA_Manager:
                 affected_services_metadata: ServiceGraphResponse = await self.get_affected_services_metadata(alert)
                 print(affected_services_metadata)
 
-            with custom_span("Kubernetes Cluster Analysis"):
-                k8s_exploration = await self.explore_k8s(affected_services_metadata.final_output)
+            # with custom_span("Kubernetes Cluster Analysis"):
+            #     k8s_exploration = await self.explore_k8s(alert, affected_services_metadata.final_output)
+
+            with custom_span("Observe Log Analysis"):
+                observe_exploration = await self.explore_observe_logs(alert, affected_services_metadata.final_output)
 
     async def get_affected_services_metadata(self, alert: AlertGroup) -> ServiceGraphResponse:
         """
@@ -49,16 +53,29 @@ class RCA_Manager:
         self.printer.mark_item_done("fetching")
         return graph_metadata
     
-    async def explore_k8s(self, service_graph: ServiceGraphResponse) -> str:
+    async def explore_k8s(self, alert: AlertGroup, service_graph: ServiceGraphResponse) -> str:
         """
         Explore the k8s metadata for the affected services.
         """
         self.printer.update_item("exploring", f"Exploring k8s metadata for relevant services...")
         k8s_exploration = await Runner().run(
             k8s_agent,
+            alert.json(),
             service_graph.model_dump_json()
         )
         self.printer.mark_item_done("exploring")
         return k8s_exploration
+    
+    async def explore_observe_logs(self, alert: AlertGroup, service_graph: ServiceGraphResponse) -> str:
+        """
+        Explore the logs for the affected services.
+        """
+        self.printer.update_item("exploring", f"Exploring logs for relevant services...")
+        logs_exploration = await Runner().run(
+            observe_agent,
+            service_graph.model_dump_json()
+        )
+        self.printer.mark_item_done("exploring")
+        return logs_exploration
 
 rca_manager = RCA_Manager()
