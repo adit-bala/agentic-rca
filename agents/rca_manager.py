@@ -12,6 +12,7 @@ from printer import Printer
 from neo4j_agent import neo4j_agent
 from k8s_agent import k8s_agent
 from observe_agent import observe_agent
+from rca_agent import rca_summary_agent
 from models import AlertGroup, ServiceGraphResponse
 from agent_types import AgentName, AgentType, AGENT_TYPE_MAP
 from websocket_types import (
@@ -96,6 +97,9 @@ class RCA_Manager:
                     ))
                     print(f"Sent TOOL_OUTPUT message for {agent.name}")
                 elif event.item.type == "message_output_item":
+                    # skip neo4j output since it's just a json string
+                    if agent.name == AgentName.NEO4J:
+                        continue
                     message = ItemHelpers.text_message_output(event.item)
                     print(f"-- Message output:\n {message}")
                     await self.websocket.send_json(MessageOutputMessage(
@@ -139,6 +143,10 @@ class RCA_Manager:
                 print(f"k8s_exploration: {k8s_exploration.final_output}")
                 print(f"observe_exploration: {observe_exploration.final_output}")
 
+            with custom_span("RCA Summary"):
+                rca_summary = await self.rca_summary(alert, affected_services_metadata.final_output, k8s_exploration.final_output, observe_exploration.final_output)
+                print(f"rca_summary: {rca_summary.final_output}")
+
     async def get_affected_services_metadata(self, alert: AlertGroup) -> ServiceGraphResponse:
         """
         Get the metadata for the affected services.
@@ -165,3 +173,12 @@ class RCA_Manager:
         observe_exploration = await self.wrap_agent_stream(observe_agent, alert.json(), service_graph.json())
         self.printer.mark_item_done("observe")
         return observe_exploration
+    
+    async def rca_summary(self, alert: AlertGroup, service_graph: ServiceGraphResponse, k8s_exploration: str, observe_exploration: str) -> str:
+        """
+        Generate a summary of the RCA.
+        """
+        self.printer.update_item("summary", "Generating RCA summary...")
+        rca_summary = await self.wrap_agent_stream(rca_summary_agent, alert.json(), service_graph.json(), k8s_exploration, observe_exploration)
+        self.printer.mark_item_done("summary")
+        return rca_summary
