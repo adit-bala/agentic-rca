@@ -3,6 +3,7 @@ from __future__ import annotations
 import os, time, httpx, json
 from typing import List, Dict, Any, Optional
 from agents import Agent, ModelSettings, function_tool
+from agent_types import AgentName
 
 OBSERVE_BASE   = os.getenv("OBSERVE_BASE_URL", "https://119137983744.observeinc.com")
 BEARER_TOKEN   = os.getenv("OBSERVE_API_TOKEN")
@@ -39,6 +40,7 @@ class ObserveClient:
     def __init__(self):
         token = BEARER_TOKEN.strip('"') if BEARER_TOKEN else None
         if not token:
+            print("OBSERVE_API_TOKEN env var is missing or quoted")
             raise RuntimeError("OBSERVE_API_TOKEN env var is missing or quoted")
         self._headers = {
             "Authorization": f"Bearer {BEARER_TOKEN}",
@@ -63,14 +65,11 @@ class ObserveClient:
             }
         }
         url = f"/v1/meta/export/query?interval={minutes}m"
-        print(f"\nObserve HTTP Request:")
+        print("Observe HTTP Request:")
         print(f"POST {OBSERVE_BASE}{url}")
-        print("Headers:")
-        for key, value in self._headers.items():
-            print(f"  {key}: {value}")
-        print("Body:")
-        print(json.dumps(body, indent=2))
-        print()
+        print(f"Headers: {self._headers}")
+        print(f"Body: {json.dumps(body, indent=2)}")
+
         async with httpx.AsyncClient(base_url=OBSERVE_BASE, headers=self._headers) as cli:
             try:
                 resp = await cli.post(url, json=body, timeout=60)
@@ -82,15 +81,15 @@ class ObserveClient:
                 ]
                 return rows
             except httpx.HTTPStatusError as e:
-                print(f"\nHTTP Error {e.response.status_code}:")
+                print(f"HTTP Error {e.response.status_code}:")
                 print(f"Response Headers: {dict(e.response.headers)}")
                 print(f"Response Body: {e.response.text}")
                 raise
             except httpx.RequestError as e:
-                print(f"\nRequest Error: {str(e)}")
+                print(f"Request Error: {str(e)}")
                 raise
             except json.JSONDecodeError as e:
-                print(f"\nJSON Decode Error: {str(e)}")
+                print(f"JSON Decode Error: {str(e)}")
                 print(f"Response Text: {resp.text}")
                 raise
 
@@ -117,7 +116,7 @@ async def opl_get_logs(
 
 
 observe_agent = Agent(
-    name="ObserveLogAgent",
+    name=AgentName.OBSERVE,
     instructions=PROMPT,
     tools=[opl_get_logs],
     output_type=str,

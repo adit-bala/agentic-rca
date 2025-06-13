@@ -1,6 +1,6 @@
 fastapi
 rich
-uvicorn
+uvicorn[standard]
 pydantic
 python-dotenv
 neo4j

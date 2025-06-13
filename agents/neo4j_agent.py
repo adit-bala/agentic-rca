@@ -3,6 +3,7 @@ from neo4j import GraphDatabase
 import os
 from typing import Dict, List
 from models import ServiceNode, K8sMetadata, ServiceGraph, ServiceGraphResponse, ServiceDependencies
+from agent_types import AgentName
 import json
 
 PROMPT = (
@@ -78,7 +79,7 @@ neo4j_client = Neo4jClient()
 
 def get_current_node_metadata(service_name: str) -> ServiceNode:
     """Get the current node's metadata including Kubernetes information."""
-    print(f"[Neo4jAgent] Getting metadata for service: {service_name}")
+    print(f"Getting metadata for service: {service_name}")
     try:
         with neo4j_client.driver.session() as session:
             result = session.run("""
@@ -93,6 +94,7 @@ def get_current_node_metadata(service_name: str) -> ServiceNode:
             """, service_name=service_name).single()
             
             if not result:
+                print(f"Service {service_name} not found")
                 raise ValueError(f"Service {service_name} not found")
             
             # Parse attributes JSON if present
@@ -101,7 +103,7 @@ def get_current_node_metadata(service_name: str) -> ServiceNode:
                 try:
                     attributes = json.loads(result["attributesJson"])
                 except json.JSONDecodeError:
-                    print(f"Warning: Could not parse attributes JSON for service {service_name}")
+                    print(f"Could not parse attributes JSON for service {service_name}")
             
             return ServiceNode(
                 name=result["name"],
@@ -115,12 +117,12 @@ def get_current_node_metadata(service_name: str) -> ServiceNode:
                 attributes=attributes
             )
     except Exception as e:
-        print(f"[Neo4jAgent] Error getting node metadata: {str(e)}")
+        print(f"Error getting node metadata: {str(e)}")
         raise
 
 def get_service_dependencies(service_name: str) -> ServiceDependencies:
     """Get the names of upstream and downstream services for a given service."""
-    print(f"[Neo4jAgent] Getting dependencies for service: {service_name}")
+    print(f"Getting dependencies for service: {service_name}")
     try:
         with neo4j_client.driver.session() as session:
             # Query for upstream services (services that call this service)
@@ -140,13 +142,13 @@ def get_service_dependencies(service_name: str) -> ServiceDependencies:
                 downstream=downstream
             )
     except Exception as e:
-        print(f"[Neo4jAgent] Error getting service dependencies: {str(e)}")
+        print(f"Error getting service dependencies: {str(e)}")
         raise
 
 @function_tool
 def get_service_graph(service_name: List[str]) -> ServiceGraphResponse:
     """Get the complete service graph for a given service, including its metadata and dependencies."""
-    print(f"[Neo4jAgent] Building service graph for: {service_name}")
+    print(f"Building service graph for: {service_name}")
     graphs = []
     for service in service_name:
         try:
@@ -159,13 +161,13 @@ def get_service_graph(service_name: List[str]) -> ServiceGraphResponse:
             )
             graphs.append(graph)
         except Exception as e:
-            print(f"[Neo4jAgent] Error building service graph: {str(e)}")
+            print(f"Error building service graph: {str(e)}")
             raise
     return ServiceGraphResponse(services=graphs)
 
 # Define the Neo4j agent with its specialized instructions and tools
 neo4j_agent = Agent(
-    name="Neo4jAgent",
+    name=AgentName.NEO4J,
     instructions=(
         PROMPT
     ),

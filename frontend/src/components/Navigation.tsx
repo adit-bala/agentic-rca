@@ -7,37 +7,36 @@ export default function Navigation() {
   const pathname = usePathname();
 
   return (
-    <nav className="bg-white shadow">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex">
-            <div className="flex-shrink-0 flex items-center">
-              <Link href="/" className="text-xl font-bold text-gray-800">
-                Agentic RCA
-              </Link>
-            </div>
-            <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-              <Link
-                href="/"
-                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
-                  pathname === '/'
-                    ? 'border-indigo-500 text-gray-900'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                }`}
-              >
-                Dashboard
-              </Link>
-              <Link
-                href="/alerts"
-                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
-                  pathname === '/alerts'
-                    ? 'border-indigo-500 text-gray-900'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                }`}
-              >
-                Alerts
-              </Link>
-            </div>
+    <nav className="fixed left-0 top-0 h-screen w-64 bg-white text-black shadow-lg border-r border-gray-200">
+      <div className="flex flex-col h-full">
+        <div className="p-6">
+          <Link href="/" className="text-2xl font-bold text-black hover:text-[#B6E900] transition-colors">
+            Agentic RCA
+          </Link>
+        </div>
+        
+        <div className="flex-1 px-4">
+          <div className="space-y-2">
+            <Link
+              href="/"
+              className={`flex items-center px-4 py-3 rounded-lg transition-colors font-semibold ${
+                pathname === '/'
+                  ? 'bg-[#B6E900] text-black'
+                  : 'text-gray-700 hover:bg-[#F3FF3D] hover:text-black'
+              }`}
+            >
+              <span className="text-sm font-medium">Dashboard</span>
+            </Link>
+            <Link
+              href="/alerts"
+              className={`flex items-center px-4 py-3 rounded-lg transition-colors font-semibold ${
+                pathname === '/alerts'
+                  ? 'bg-[#B6E900] text-black'
+                  : 'text-gray-700 hover:bg-[#F3FF3D] hover:text-black'
+              }`}
+            >
+              <span className="text-sm font-medium">Alerts</span>
+            </Link>
           </div>
         </div>
       </div>

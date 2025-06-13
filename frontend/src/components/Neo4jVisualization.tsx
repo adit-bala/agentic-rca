@@ -42,7 +42,7 @@ const Neo4jVisualization = () => {
   }, []);
 
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full bg-white rounded-lg border border-gray-200 shadow p-4">
       <div id="viz" ref={visRef} className="w-full h-[800px]" />
     </div>
   );

@@ -13,6 +13,10 @@ source venv/bin/activate
 echo "Installing requirements..."
 pip install -r requirements.txt
 
+# Install local package in development mode
+echo "Installing local package in development mode..."
+pip install -e .
+
 # Set environment variables
 export NEO4J_URI="bolt://localhost:7687"
 export NEO4J_USER="neo4j"

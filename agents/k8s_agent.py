@@ -4,6 +4,7 @@ import subprocess
 from typing import Dict, List, Optional
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
+from agent_types import AgentName
 import json
 
 PROMPT = (
@@ -48,6 +49,7 @@ def get_minikube_kubeconfig() -> str:
         )
         return result.stdout
     except subprocess.CalledProcessError as e:
+        print(f"Failed to get minikube kubeconfig: {e.stderr}")
         raise Exception(f"Failed to get minikube kubeconfig: {e.stderr}")
 
 def is_minikube_running() -> bool:
@@ -61,16 +63,20 @@ def is_minikube_running() -> bool:
         )
         return "Running" in result.stdout
     except subprocess.CalledProcessError:
+        print("Minikube status check failed")
         return False
 
 class K8sClient:
     def __init__(self):
         try:
             if is_minikube_running():
+                print("Loading kube config from minikube")
                 config.load_kube_config()
             else:
+                print("Loading in-cluster config")
                 config.load_incluster_config()
         except Exception as e:
+            print(f"Could not configure kubernetes client: {str(e)}")
             raise Exception(f"Could not configure kubernetes client: {str(e)}")
 
     def run_k8s_command(self, command: str) -> str:
@@ -80,6 +86,7 @@ class K8sClient:
         try:
             # Split the command into parts
             cmd_parts = command.split()
+            print(f"Executing k8s command: {command}")
 
             # Execute the command
             result = subprocess.run(
@@ -91,8 +98,10 @@ class K8sClient:
             
             return result.stdout
         except subprocess.CalledProcessError as e:
+            print(f"Error executing k8s command: {e.stderr}")
             return f"Error executing command: {e.stderr}"
         except Exception as e:
+            print(f"Unexpected error executing k8s command: {str(e)}")
             return f"Error: {str(e)}"
 
 # Initialize K8s client
@@ -131,7 +140,7 @@ def kubectl_describe(resource: str, name: Optional[str] = None,
 
 # Define the K8s agent with its specialized instructions and tools
 k8s_agent = Agent(
-    name="K8sAgent",
+    name=AgentName.K8S,
     instructions=PROMPT,
     tools=[kubectl_get, kubectl_describe],
     model_settings=ModelSettings(
