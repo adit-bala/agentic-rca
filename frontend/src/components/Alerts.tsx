@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { BaseMessage, WebSocketMessageType } from '@/types/agentTypes';
+import ReactMarkdown from 'react-markdown';
 
 interface Alert {
   status: string;
@@ -271,9 +272,15 @@ export default function Alerts() {
                           </div>
                           {expandedAlerts[`${alert.labels.alertname}-${idx}`] && (
                             <div className="px-4 pb-4">
-                              <pre className="whitespace-pre-wrap text-sm text-gray-800 bg-gray-50 rounded p-3 border border-gray-100 mt-2">
-                                {JSON.stringify(message.data, null, 2)}
-                              </pre>
+                              {message.type === WebSocketMessageType.MESSAGE_OUTPUT ? (
+                                <div className="prose prose-sm max-w-none bg-gray-50 rounded p-3 border border-gray-100 mt-2 text-gray-800">
+                                  <ReactMarkdown>{String(message.data)}</ReactMarkdown>
+                                </div>
+                              ) : (
+                                <pre className="whitespace-pre-wrap text-sm text-gray-800 bg-gray-50 rounded p-3 border border-gray-100 mt-2">
+                                  {JSON.stringify(message.data, null, 2)}
+                                </pre>
+                              )}
                             </div>
                           )}
                         </div>
