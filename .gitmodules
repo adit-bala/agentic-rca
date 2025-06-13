@@ -1,4 +1,4 @@
-[submodule "agents/agents/indexing"]
-	path = agents/agents/indexing
+[submodule "agents/indexing"]
+	path = agents/indexing
 	url = git@github.com:adit-bala/gh_repo_indexing.git
 	branch = main
