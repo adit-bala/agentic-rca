@@ -86,7 +86,7 @@ func (s *UserService) healthHandler(w http.ResponseWriter, r *http.Request) {
 func (s *UserService) createUserHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	var req models.CreateUserRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
 		log.Error().Err(err).Msg("Invalid request body")
 		metrics.Inc(metrics.ErrorTotal, prometheus.Labels{
 			"service": "user-service",
