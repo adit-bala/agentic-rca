@@ -1,4 +1,4 @@
-# agentic root cause analysis in a kubernetes environment
+# agentic root cause analysis
 A platform for automated root cause analysis using AI agents
 
 - demo test architecture: simple microservice design instrumented with Prometheus and AlertManager
