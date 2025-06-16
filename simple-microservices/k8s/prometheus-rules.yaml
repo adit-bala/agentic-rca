@@ -7,6 +7,17 @@ spec:
   groups:
     - name: microservices
       rules:
+        # Invalid Request Alerts
+        - alert: UserServiceInvalidRequests
+          expr: |
+            sum(rate(errors_total{service="user-service",type="invalid_request"}[5m])) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Invalid requests detected in user service"
+            description: "User service is receiving invalid requests. Check the request format and validation."
+
         # High Latency Alerts
         - alert: HighRequestLatency
           expr: |
