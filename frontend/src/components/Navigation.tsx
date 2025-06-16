@@ -25,7 +25,7 @@ export default function Navigation() {
                   : 'text-gray-700 hover:bg-[#F3FF3D] hover:text-black'
               }`}
             >
-              <span className="text-sm font-medium">Dashboard</span>
+              <span className="text-sm font-medium">Service Dependency Graph</span>
             </Link>
             <Link
               href="/alerts"
