@@ -47,6 +47,7 @@ command -v docker-compose >/dev/null 2>&1 || { echo "Docker Compose is required 
 command -v minikube >/dev/null 2>&1 || { echo "Minikube is required but not installed. Aborting."; exit 1; }
 command -v skaffold >/dev/null 2>&1 || { echo "Skaffold is required but not installed. Aborting."; exit 1; }
 command -v helm >/dev/null 2>&1 || { echo "Helm is required but not installed. Aborting."; exit 1; }
+command -v npm >/dev/null 2>&1 || { echo "npm is required but not installed. Aborting."; exit 1; }
 
 # Check for Observe token
 if [ -z "$OBSERVE_TOKEN" ]; then
@@ -55,8 +56,8 @@ if [ -z "$OBSERVE_TOKEN" ]; then
     exit 1
 fi
 
-# Start Neo4j and frontend using docker-compose
-echo "Starting Neo4j and frontend..."
+# Start Neo4j using docker-compose
+echo "Starting Neo4j..."
 if [ "$FRESH" = true ]; then
     echo "Starting with fresh database..."
     docker-compose down -v
@@ -70,14 +71,6 @@ until curl -s http://localhost:7474 > /dev/null; do
     sleep 2
 done
 echo "Neo4j is ready!"
-
-# Wait for frontend to be ready
-echo "Waiting for frontend to be ready..."
-until curl -s http://localhost:3000 > /dev/null; do
-    echo "Waiting for frontend..."
-    sleep 2
-done
-echo "Frontend is ready!"
 
 # Start minikube
 echo "Starting minikube..."

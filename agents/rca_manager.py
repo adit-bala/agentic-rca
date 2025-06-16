@@ -46,22 +46,25 @@ class RCA_Manager:
             agent_name_enum = AgentName(agent_name)
             return AGENT_TYPE_MAP[agent_name_enum]
         except (ValueError, KeyError):
-            return AgentType.NEO4J  # Default to NEO4J if unknown
+            return AgentType.REPORT  # Default to REPORT if unknown
 
-    async def wrap_agent_stream(self, agent: Agent, *inputs: str) -> RunResultStreaming:
+    async def wrap_agent_stream(
+        self,
+        agent: Agent,
+        *inputs: str
+    ) -> RunResultStreaming:
         """
         Wrap the agent stream to send the output to the websocket.
-        Takes variable number of input strings and formats them as agent-compatible messages.
+        
+        Args:
+            agent: The agent to run
+            *inputs: Variable number of input strings to format as agent-compatible messages
+            stream: Whether to stream the output (default: True)
         """
         formatted_inputs = [{"role": "user", "content": content} for content in inputs]
         agent_type = self._get_agent_type(agent.name)
         
         result = Runner.run_streamed(agent, formatted_inputs)
-        await self.websocket.send_json(AgentStartedMessage(
-            type=WebSocketMessageType.AGENT_STARTED,
-            agent=agent_type,
-            data=agent.name
-        ))
         print(f"=== {agent.name} starting ===")
         print(f"Sent AGENT_STARTED message for {agent.name}")
 
@@ -69,24 +72,22 @@ class RCA_Manager:
             # Ignore raw responses
             if event.type == "raw_response_event":
                 continue
-            # When the agent updates, print that
-            elif event.type == "agent_updated_stream_event":
-                print(f"Agent updated: {event.new_agent.name}")
-                await self.websocket.send_json(AgentUpdatedMessage(
-                    type=WebSocketMessageType.AGENT_UPDATED,
-                    agent=agent_type,
-                    data={"name": event.new_agent.name}
-                ))
-                print(f"Sent AGENT_UPDATED message for {event.new_agent.name}")
-                continue
             # When items are generated, print them
             elif event.type == "run_item_stream_event":
                 if event.item.type == "tool_call_item":
                     print("-- Tool was called")
+                    call = event.item.raw_item
+                    # Extract function call name and arguments
+                    function_name = getattr(call, 'name', None)
+                    arguments = getattr(call, 'arguments', None)
                     await self.websocket.send_json(ToolCallMessage(
                         type=WebSocketMessageType.TOOL_CALL,
                         agent=agent_type,
-                        data="-- Tool was called"
+                        data={
+                            'function_name': function_name,
+                            'arguments': arguments,
+                            'raw': _json_safe(call)
+                        }
                     ))
                     print(f"Sent TOOL_CALL message for {agent.name}")
                 elif event.item.type == "tool_call_output_item":
@@ -98,9 +99,6 @@ class RCA_Manager:
                     ))
                     print(f"Sent TOOL_OUTPUT message for {agent.name}")
                 elif event.item.type == "message_output_item":
-                    # skip neo4j output since it's just a json string
-                    if agent.name == AgentName.NEO4J:
-                        continue
                     message = ItemHelpers.text_message_output(event.item)
                     print(f"-- Message output:\n {message}")
                     await self.websocket.send_json(MessageOutputMessage(
@@ -131,11 +129,16 @@ class RCA_Manager:
                 is_done=True,
                 hide_checkmark=True,
             )
+            # TODO: colors for emphasis, focus less on tool calls, more on visuals and agent outputs
+            # TODO: group by agent, and then by type of output (thinking instead of tool calls)
+            # TODO: progress colors/bar for agents, icons for agents
 
             with custom_span("Neo4j Service Graph Analysis"):
-                affected_services_metadata: ServiceGraphResponse = await self.get_affected_services_metadata(alert)
+                # TODO: broadcast subset of services in query and highlight the affected services
+                # TODO: add directed edges to the graph
+                affected_services_metadata: ServiceGraphResponse = await self.get_affected_services_from_neo4j(alert)
                 print(f"affected_services_metadata: {affected_services_metadata.final_output}")
-
+            
             with custom_span("Kubernetes and Observe Log Analysis"):
                 k8s_exploration, observe_exploration = await asyncio.gather(
                     self.explore_k8s(alert, affected_services_metadata.final_output),
@@ -152,7 +155,7 @@ class RCA_Manager:
                 rca_summary = await self.rca_summary(alert, affected_services_metadata.final_output, k8s_exploration.final_output, observe_exploration.final_output, codebase_analysis.final_output)
                 print(f"rca_summary: {rca_summary.final_output}")
 
-    async def get_affected_services_metadata(self, alert: AlertGroup) -> ServiceGraphResponse:
+    async def get_affected_services_from_neo4j(self, alert: AlertGroup) -> ServiceGraphResponse:
         """
         Get the metadata for the affected services.
         """

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BaseMessage, WebSocketMessageType } from '@/types/agentTypes';
+import { AgentType, WebSocketMessageType } from '@/types/agentTypes';
 import ReactMarkdown from 'react-markdown';
 
 interface Alert {
@@ -31,8 +31,160 @@ interface AlertGroup {
   alerts: Alert[];
 }
 
-interface AlertMessages {
-  [alertName: string]: BaseMessage[];
+// Types for the graph data
+interface K8sInfo {
+  namespace: string;
+  labels: Record<string, string> | null;
+  annotations: Record<string, string> | null;
+  owner_kind: string;
+  owner_name: string;
+  owner_uid: string;
+}
+interface ServiceNode {
+  name: string;
+  k8s: K8sInfo;
+  operation: string | null;
+  attributes: Record<string, string> | null;
+}
+interface ServiceGraph {
+  current: ServiceNode;
+  upstream: ServiceNode[];
+  downstream: ServiceNode[];
+}
+interface Neo4jGraphData {
+  services: ServiceGraph[];
+}
+
+// Add after Neo4jGraphData
+interface MessageOutputEntry {
+  agent: string;
+  message: string;
+}
+
+// Restore ToolCallEntry and toolCalls state
+interface ToolCallEntry {
+  agent: string;
+  function_name: string;
+  arguments: string;
+  status: 'pending' | 'done';
+  output?: string;
+}
+
+// Add a simple graph rendering component
+function ServiceDependencyGraph({ services }: { services: ServiceGraph[] }) {
+  if (!services || services.length === 0) return null;
+
+  // For now, only support a single service object as in the example
+  const { current, upstream, downstream } = services[0];
+
+  // Build nodes array: upstream(s), current, downstream(s)
+  // Layout: upstream on left, current center, downstream right
+  const nodeRadius = 32;
+  const width = 800;
+  const height = 220;
+  const centerY = height / 2;
+  const leftX = 160;
+  const centerX = width / 2;
+  const rightX = width - 160;
+
+  // Assign positions
+  const upstreamNodes = upstream.map((node, i) => ({
+    ...node,
+    x: leftX,
+    y: centerY + (i - (upstream.length - 1) / 2) * 80,
+    type: 'upstream',
+  }));
+  const currentNode = {
+    ...current,
+    x: centerX,
+    y: centerY,
+    type: 'current',
+  };
+  const downstreamNodes = downstream.map((node, i) => ({
+    ...node,
+    x: rightX,
+    y: centerY + (i - (downstream.length - 1) / 2) * 80,
+    type: 'downstream',
+  }));
+
+  // Helper to render a node
+  const renderNode = (node: ServiceNode & { x: number; y: number; type: string }) => {
+    let stroke, fill, ringStroke;
+    if (node.type === 'current') {
+      stroke = '#FF6B00';
+      fill = '#fff';
+      ringStroke = '#FF6B00';
+    } else {
+      stroke = '#B6E900';
+      fill = '#fff';
+      ringStroke = '#F3FF3D';
+    }
+    return (
+      <g key={node.name}>
+        {/* Outer ring */}
+        <circle cx={node.x} cy={node.y} r={nodeRadius + 6} fill="none" stroke={ringStroke} strokeWidth={6} />
+        {/* Inner ring */}
+        <circle cx={node.x} cy={node.y} r={nodeRadius} fill={fill} stroke={stroke} strokeWidth={3} />
+        {/* Node name */}
+        <text
+          x={node.x}
+          y={node.y + nodeRadius + 22}
+          textAnchor="middle"
+          fontWeight={node.type === 'current' ? 'bold' : 'normal'}
+          fontSize={16}
+          fill="#222"
+        >
+          {node.name}
+        </text>
+      </g>
+    );
+  };
+
+  // Helper to render a directed edge
+  const renderEdge = (
+    from: ServiceNode & { x: number; y: number; type: string },
+    to: ServiceNode & { x: number; y: number; type: string }
+  ) => (
+    <g key={`${from.name}->${to.name}`}>
+      <line
+        x1={from.x + (to.x > from.x ? nodeRadius : -nodeRadius)}
+        y1={from.y}
+        x2={to.x + (from.x > to.x ? nodeRadius : -nodeRadius)}
+        y2={to.y}
+        stroke="#FF6B00"
+        strokeWidth={2}
+        markerEnd="url(#arrow-red)"
+      />
+      <text
+        x={(from.x + to.x) / 2}
+        y={(from.y + to.y) / 2 - 10}
+        textAnchor="middle"
+        fontSize={12}
+        fill="#FF6B00"
+        fontWeight="bold"
+      >
+        CALLS
+      </text>
+    </g>
+  );
+
+  return (
+    <svg width={width} height={height} style={{ display: 'block', margin: '0 auto' }}>
+      {/* Edges: upstream -> current, current -> downstream */}
+      {upstreamNodes.map(node => renderEdge(node, currentNode))}
+      {downstreamNodes.map(node => renderEdge(currentNode, node))}
+      {/* Nodes */}
+      {upstreamNodes.map(renderNode)}
+      {renderNode(currentNode)}
+      {downstreamNodes.map(renderNode)}
+      {/* Arrow marker definition */}
+      <defs>
+        <marker id="arrow-red" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#FF6B00" />
+        </marker>
+      </defs>
+    </svg>
+  );
 }
 
 export default function Alerts() {
@@ -40,8 +192,12 @@ export default function Alerts() {
   const [error, setError] = useState<string | null>(null);
   const [websocketIds, setWebsocketIds] = useState<Record<string, string>>({});
   const [websockets, setWebsockets] = useState<Record<string, WebSocket>>({});
-  const [messages, setMessages] = useState<AlertMessages>({});
-  const [expandedAlerts, setExpandedAlerts] = useState<Record<string, boolean>>({});
+  const [graphData, setGraphData] = useState<Neo4jGraphData | null>(null);
+  const [investigating, setInvestigating] = useState<Record<string, boolean>>({});
+  const [messageOutputs, setMessageOutputs] = useState<MessageOutputEntry[]>([]);
+  const [expandedMessageOutput, setExpandedMessageOutput] = useState<number | null>(null);
+  const [toolCalls, setToolCalls] = useState<ToolCallEntry[]>([]);
+  const [expandedToolCall, setExpandedToolCall] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchAlerts = async () => {
@@ -54,23 +210,17 @@ export default function Alerts() {
         setError(err instanceof Error ? err.message : 'Failed to fetch alerts');
       }
     };
-
-    // Initial fetch
     fetchAlerts();
-
-    // Poll for updates every 10 seconds
     const interval = setInterval(fetchAlerts, 10000);
-
     return () => {
       clearInterval(interval);
-      // Close all WebSocket connections
       Object.values(websockets).forEach(ws => ws.close());
     };
   }, [websockets]);
 
   const startRCA = async (alert: Alert) => {
+    setInvestigating(prev => ({ ...prev, [alert.labels.alertname]: true }));
     try {
-      // Create alert group payload
       const alertGroup: AlertGroup = {
         version: "4",
         groupKey: `{}:{alertname="${alert.labels.alertname}"}`,
@@ -82,104 +232,112 @@ export default function Alerts() {
         externalURL: "",
         alerts: [alert]
       };
-
-      // Step 1: Send to /alerts endpoint to get WebSocket ID
       const response = await fetch('http://localhost:8001/alerts', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(alertGroup),
       });
-
       if (!response.ok) throw new Error('Failed to start RCA');
-      
       const data = await response.json();
       const wsId = data.websocket_id;
-
-      if (!wsId) {
-        throw new Error('No WebSocket ID received from server');
-      }
-
-      // Store websocket ID for this alert
-      setWebsocketIds(prev => ({
-        ...prev,
-        [alert.labels.alertname]: wsId
-      }));
-
-      // Step 2: Create WebSocket connection to receive updates
-      // The WebSocket connection itself initiates the processing
+      if (!wsId) throw new Error('No WebSocket ID received from server');
+      setWebsocketIds(prev => ({ ...prev, [alert.labels.alertname]: wsId }));
       const ws = new WebSocket(`ws://localhost:8001/process/${wsId}`);
-      
       ws.onmessage = (event) => {
+        console.log('WebSocket message:', event);
         try {
-          const message: BaseMessage = JSON.parse(event.data);
-          setMessages(prev => ({
-            ...prev,
-            [alert.labels.alertname]: [...(prev[alert.labels.alertname] || []), message]
-          }));
+          const message = JSON.parse((event as MessageEvent).data);
+          if (message.type === WebSocketMessageType.TOOL_CALL) {
+            setToolCalls(prev => [
+              ...prev,
+              {
+                agent: message.agent,
+                function_name: message.data.function_name,
+                arguments: message.data.arguments,
+                status: 'pending',
+              }
+            ]);
+          }
+          if (message.type === WebSocketMessageType.TOOL_OUTPUT) {
+            setToolCalls(prev => prev.map(tc =>
+              tc.agent === message.agent && tc.function_name === (message.data?.function_name || tc.function_name)
+                ? { ...tc, status: 'done', output: typeof message.data === 'string' ? message.data : JSON.stringify(message.data) }
+                : tc
+            ));
+          }
+          if (message.type === WebSocketMessageType.MESSAGE_OUTPUT) {
+            setMessageOutputs(prev => [
+              ...prev,
+              {
+                agent: message.agent,
+                message: message.data,
+              }
+            ]);
+          }
+          // Only display MESSAGE_OUTPUT from neo4j agent with 'services' array
+          if (
+            message.type === WebSocketMessageType.MESSAGE_OUTPUT &&
+            message.agent === AgentType.NEO4J &&
+            message.data &&
+            typeof message.data === 'string'
+          ) {
+            let parsed;
+            try {
+              parsed = JSON.parse(message.data);
+            } catch {
+              // Not JSON, ignore
+              return;
+            }
+            if (parsed && Array.isArray(parsed.services) && parsed.services.length > 0) {
+              setGraphData(parsed);
+            }
+          } else {
+            // For all other messages, just log
+            console.log('WebSocket message:', message);
+          }
         } catch (err) {
           console.error('Failed to parse WebSocket message:', err);
         }
       };
-
-      ws.onerror = (error) => {
+      ws.onerror = (error: Event) => {
         console.error('WebSocket error:', error);
-        // Clean up the websocket ID on error
         setWebsocketIds(prev => {
           const newIds = { ...prev };
           delete newIds[alert.labels.alertname];
           return newIds;
         });
+        setInvestigating(prev => {
+          const newInv = { ...prev };
+          delete newInv[alert.labels.alertname];
+          return newInv;
+        });
       };
-
       ws.onclose = () => {
-        console.log('WebSocket connection closed');
-        // Clean up the websocket ID when connection closes
         setWebsocketIds(prev => {
           const newIds = { ...prev };
           delete newIds[alert.labels.alertname];
           return newIds;
         });
+        setInvestigating(prev => {
+          const newInv = { ...prev };
+          delete newInv[alert.labels.alertname];
+          return newInv;
+        });
       };
-
-      setWebsockets(prev => ({
-        ...prev,
-        [alert.labels.alertname]: ws
-      }));
-
+      setWebsockets(prev => ({ ...prev, [alert.labels.alertname]: ws }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start RCA');
-      // Clean up the websocket ID on error
       setWebsocketIds(prev => {
         const newIds = { ...prev };
         delete newIds[alert.labels.alertname];
         return newIds;
       });
+      setInvestigating(prev => {
+        const newInv = { ...prev };
+        delete newInv[alert.labels.alertname];
+        return newInv;
+      });
     }
-  };
-
-  // Helper to get badge color and label based on message type or likelihood
-  const getStatusBadge = (message: BaseMessage) => {
-    // You can expand this logic if you have more granular likelihoods in your data
-    if (typeof message.data === 'string') {
-      if (message.data.toLowerCase().includes('very likely')) {
-        return { label: 'Very Likely', color: 'bg-[#FF6B00] text-white' };
-      }
-      if (message.data.toLowerCase().includes('unlikely')) {
-        return { label: 'Unlikely', color: 'bg-[#B6E900] text-black' };
-      }
-      if (message.data.toLowerCase().includes('very unlikely')) {
-        return { label: 'Very Unlikely', color: 'bg-[#B6E900] text-black' };
-      }
-    }
-    if (message.type === WebSocketMessageType.ERROR) {
-      return { label: 'Error', color: 'bg-red-500 text-white' };
-    }
-    if (message.type === WebSocketMessageType.STATUS) {
-      return { label: 'Status', color: 'bg-gray-200 text-black' };
-    }
-    return { label: message.type, color: 'bg-gray-200 text-black' };
   };
 
   if (error) {
@@ -196,7 +354,7 @@ export default function Alerts() {
           alerts.map((alert, index) => (
             <div
               key={index}
-              className="p-0 rounded-lg border border-gray-200 shadow-lg bg-white max-w-2xl mx-auto"
+              className="p-0 rounded-lg border border-gray-200 shadow-lg bg-white w-full"
               style={{ borderLeft: `8px solid ${alert.labels.severity === 'critical' ? '#FF6B00' : '#B6E900'}` }}
             >
               <div className="flex justify-between items-start p-4">
@@ -228,64 +386,88 @@ export default function Alerts() {
               <div className="p-4 pt-0">
                 <button
                   onClick={() => startRCA(alert)}
-                  disabled={!!websocketIds[alert.labels.alertname]}
+                  disabled={!!websocketIds[alert.labels.alertname] || investigating[alert.labels.alertname]}
                   className={`px-4 py-2 rounded font-semibold transition-colors duration-200 shadow ${
-                    websocketIds[alert.labels.alertname]
+                    (!!websocketIds[alert.labels.alertname] || investigating[alert.labels.alertname])
                       ? 'bg-gray-300 cursor-not-allowed text-gray-600'
                       : 'bg-[#B6E900] text-black hover:bg-[#D4FF3D]'
                   }`}
                 >
-                  {websocketIds[alert.labels.alertname] ? 'RCA in Progress...' : 'Start Root Cause Analysis'}
+                  {investigating[alert.labels.alertname] || websocketIds[alert.labels.alertname]
+                    ? 'Investigating Root Cause Analysis'
+                    : 'Start Root Cause Analysis'}
                 </button>
-
-                {/* Messages Dropdown */}
-                {messages[alert.labels.alertname]?.length > 0 && (
-                  <div className="mt-4 space-y-3">
-                    {messages[alert.labels.alertname].map((message, idx) => {
-                      const badge = getStatusBadge(message);
-                      return (
-                        <div
-                          key={idx}
-                          className="rounded-lg border border-gray-200 bg-white shadow flex flex-col"
-                          style={{ borderLeft: `6px solid ${badge.label === 'Very Likely' ? '#FF6B00' : badge.label.includes('Unlikely') ? '#B6E900' : '#D1D5DB'}` }}
+                 {/* Service Dependency Graph */}
+                 {graphData && graphData.services && graphData.services.length > 0 && (
+                  <div className="mt-6">
+                    <h4 className="font-semibold text-black mb-2 text-xl">Service Dependency Graph</h4>
+                    <ServiceDependencyGraph services={graphData.services} />
+                  </div>
+                )}
+                {/* Final Report (agent === AgentType.REPORT) below the graph */}
+                {messageOutputs.filter(msg => msg.agent === AgentType.REPORT).length > 0 && (
+                  <div className="mt-6">
+                    {messageOutputs.filter(msg => msg.agent === AgentType.REPORT).map((msg, i) => (
+                      <div key={i} className="bg-gray-50 p-6 rounded text-black mt-4">
+                        <div className="prose prose-2xl max-w-none text-black" style={{ fontSize: '1.35rem' }}>
+                          <ReactMarkdown>{msg.message}</ReactMarkdown>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Tool Call Dropdowns */}
+                {toolCalls.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    {toolCalls.map((toolCall, i) => (
+                      <div key={i} className="border border-gray-300 rounded">
+                        <button
+                          className="w-full text-left px-4 py-2 font-mono bg-gray-100 hover:bg-gray-200 rounded-t focus:outline-none text-black flex items-center justify-between"
+                          onClick={() => setExpandedToolCall(expandedToolCall === i ? null : i)}
                         >
-                          <div className="flex items-center justify-between px-4 py-3 cursor-pointer select-none"
-                            onClick={() => setExpandedAlerts(prev => ({
-                              ...prev,
-                              [`${alert.labels.alertname}-${idx}`]: !prev[`${alert.labels.alertname}-${idx}`]
-                            }))}
+                          <span>
+                            {toolCall.agent} called {toolCall.function_name}(
+                            {toolCall.arguments}
+                            )
+                          </span>
+                          {toolCall.status === 'pending' && (
+                            <svg className="animate-spin ml-2" width="18" height="18" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="black" strokeWidth="4" fill="none" />
+                              <path className="opacity-75" fill="black" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                            </svg>
+                          )}
+                        </button>
+                        {expandedToolCall === i && toolCall.status === 'done' && (
+                          <pre className="bg-gray-50 text-xs p-4 overflow-x-auto rounded-b text-black">
+                            {toolCall.output}
+                          </pre>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Message Output Dropdowns (other agents) */}
+                {messageOutputs.filter(msg => msg.agent !== AgentType.REPORT).length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    {messageOutputs.map((msg, i) => (
+                      msg.agent === AgentType.REPORT ? null : (
+                        <div key={i} className="border border-gray-300 rounded">
+                          <button
+                            className="w-full text-left px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-t focus:outline-none text-black font-bold text-lg"
+                            onClick={() => setExpandedMessageOutput(expandedMessageOutput === i ? null : i)}
                           >
-                            <div className="flex items-center gap-2">
-                              <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${badge.color}`}>{badge.label}</span>
-                              <span className="font-medium text-black">
-                                {message.type === WebSocketMessageType.STATUS ? 'Status Update' : 
-                                 message.type === WebSocketMessageType.ERROR ? 'Error' : 
-                                 message.type}
-                              </span>
-                            </div>
-                            <button
-                              className="ml-2 px-3 py-1 rounded bg-[#B6E900] text-[#F3FF3D] font-semibold text-xs shadow hover:bg-[#D4FF3D] transition-colors duration-200"
-                              tabIndex={-1}
-                            >
-                              {expandedAlerts[`${alert.labels.alertname}-${idx}`] ? 'Hide Details' : 'Show Details'}
-                            </button>
-                          </div>
-                          {expandedAlerts[`${alert.labels.alertname}-${idx}`] && (
-                            <div className="px-4 pb-4">
-                              {message.type === WebSocketMessageType.MESSAGE_OUTPUT ? (
-                                <div className="prose prose-sm max-w-none bg-gray-50 rounded p-3 border border-gray-100 mt-2 text-gray-800">
-                                  <ReactMarkdown>{String(message.data)}</ReactMarkdown>
-                                </div>
-                              ) : (
-                                <pre className="whitespace-pre-wrap text-sm text-gray-800 bg-gray-50 rounded p-3 border border-gray-100 mt-2">
-                                  {JSON.stringify(message.data, null, 2)}
-                                </pre>
-                              )}
+                            {msg.agent} report
+                          </button>
+                          {expandedMessageOutput === i && (
+                            <div className="bg-gray-50 text-black p-4 rounded-b">
+                              <div className="prose prose-xl max-w-none text-black" style={{ fontSize: '1.15rem' }}>
+                                <ReactMarkdown>{msg.message}</ReactMarkdown>
+                              </div>
                             </div>
                           )}
                         </div>
-                      );
-                    })}
+                      )
+                    ))}
                   </div>
                 )}
               </div>
