@@ -13,6 +13,7 @@ from neo4j_agent import neo4j_agent
 from k8s_agent import k8s_agent
 from observe_agent import observe_agent
 from rca_agent import rca_summary_agent
+from codebase_agent import codebase_agent
 from models import AlertGroup, ServiceGraphResponse
 from agent_types import AgentName, AgentType, AGENT_TYPE_MAP
 from websocket_types import (
@@ -135,7 +136,7 @@ class RCA_Manager:
                 affected_services_metadata: ServiceGraphResponse = await self.get_affected_services_metadata(alert)
                 print(f"affected_services_metadata: {affected_services_metadata.final_output}")
 
-            with custom_span("Kubernets and Observe Log Analysis"):
+            with custom_span("Kubernetes and Observe Log Analysis"):
                 k8s_exploration, observe_exploration = await asyncio.gather(
                     self.explore_k8s(alert, affected_services_metadata.final_output),
                     self.explore_observe_logs(alert, affected_services_metadata.final_output)
@@ -143,8 +144,12 @@ class RCA_Manager:
                 print(f"k8s_exploration: {k8s_exploration.final_output}")
                 print(f"observe_exploration: {observe_exploration.final_output}")
 
+            with custom_span("Codebase Analysis"):
+                codebase_analysis = await self.codebase_analysis(alert, affected_services_metadata.final_output, k8s_exploration.final_output, observe_exploration.final_output)
+                print(f"codebase_analysis: {codebase_analysis.final_output}")
+
             with custom_span("RCA Summary"):
-                rca_summary = await self.rca_summary(alert, affected_services_metadata.final_output, k8s_exploration.final_output, observe_exploration.final_output)
+                rca_summary = await self.rca_summary(alert, affected_services_metadata.final_output, k8s_exploration.final_output, observe_exploration.final_output, codebase_analysis.final_output)
                 print(f"rca_summary: {rca_summary.final_output}")
 
     async def get_affected_services_metadata(self, alert: AlertGroup) -> ServiceGraphResponse:
@@ -174,11 +179,20 @@ class RCA_Manager:
         self.printer.mark_item_done("observe")
         return observe_exploration
     
-    async def rca_summary(self, alert: AlertGroup, service_graph: ServiceGraphResponse, k8s_exploration: str, observe_exploration: str) -> str:
+    async def codebase_analysis(self, alert: AlertGroup, service_graph: ServiceGraphResponse, k8s_exploration: str, observe_exploration: str) -> str:
+        """
+        Analyze the codebase for the affected services.
+        """
+        self.printer.update_item("codebase", "Analyzing codebase...")
+        codebase_analysis = await self.wrap_agent_stream(codebase_agent, alert.json(), service_graph.json(), k8s_exploration, observe_exploration)
+        self.printer.mark_item_done("codebase")
+        return codebase_analysis
+    
+    async def rca_summary(self, alert: AlertGroup, service_graph: ServiceGraphResponse, k8s_exploration: str, observe_exploration: str, codebase_analysis: str) -> str:
         """
         Generate a summary of the RCA.
         """
         self.printer.update_item("summary", "Generating RCA summary...")
-        rca_summary = await self.wrap_agent_stream(rca_summary_agent, alert.json(), service_graph.json(), k8s_exploration, observe_exploration)
+        rca_summary = await self.wrap_agent_stream(rca_summary_agent, alert.json(), service_graph.json(), k8s_exploration, observe_exploration, codebase_analysis)
         self.printer.mark_item_done("summary")
         return rca_summary

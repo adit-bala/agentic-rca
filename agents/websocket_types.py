@@ -4,7 +4,9 @@ from typing import TypedDict, Any, Literal
 class AgentType(str, Enum):
     """Types of agents in the system."""
     NEO4J = "neo4j"
+    K8S = "k8s"
     OBSERVE = "observe"
+    GITHUB = "github"
     REPORT = "report"
 
 class WebSocketMessageType(str, Enum):

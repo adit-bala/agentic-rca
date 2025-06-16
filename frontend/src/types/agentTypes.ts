@@ -2,6 +2,7 @@ export enum AgentName {
   NEO4J = "Neo4jAgent",
   K8S = "K8sAgent",
   OBSERVE = "ObserveLogAgent",
+  GITHUB = "GithubAgent",
   REPORT = "ReportAgent"
 }
 
@@ -9,6 +10,7 @@ export enum AgentType {
   NEO4J = "neo4j",
   K8S = "k8s",
   OBSERVE = "observe",
+  GITHUB = "github",
   REPORT = "report"
 }
 
@@ -27,6 +29,7 @@ export const AGENT_TYPE_MAP: Record<AgentName, AgentType> = {
   [AgentName.NEO4J]: AgentType.NEO4J,
   [AgentName.K8S]: AgentType.K8S,
   [AgentName.OBSERVE]: AgentType.OBSERVE,
+  [AgentName.GITHUB]: AgentType.GITHUB,
   [AgentName.REPORT]: AgentType.REPORT
 }
 

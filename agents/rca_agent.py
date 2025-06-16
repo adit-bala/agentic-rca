@@ -11,6 +11,7 @@ PROMPT = (
     - The Neo4j agent's service graph and dependency analysis
     - The Kubernetes agent's findings (pod/deployment health, events, etc.)
     - The Observe agent's log/error analysis
+    - The Codebase agent's analysis of the codebase in the context of the incident
 
     Your job is to:
     1. Synthesize all the information to explain what most likely happened.
@@ -33,6 +34,7 @@ class RCASummaryInputSchema(AgentOutputSchema):
     neo4j: Any
     k8s: Any
     observe: Any
+    codebase: Any
 
 # Define the RCA summary agent
 rca_summary_agent = Agent(
