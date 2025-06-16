@@ -24,6 +24,7 @@ type UserService struct {
 	nextID            int
 	dataServiceClient *httpClient.Client
 	startTime         time.Time
+	requestCount      int
 }
 
 func main() {
@@ -96,6 +97,11 @@ func (s *UserService) createUserHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	s.usersMutex.Lock()
+	s.requestCount++
+	shouldError := s.requestCount%3 == 0
+	s.usersMutex.Unlock()
+
 	ctx := r.Context()
 
 	log.Info().Str("name", req.Name).Str("email", req.Email).Msg("Creating user")
@@ -128,6 +134,10 @@ func (s *UserService) createUserHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var processedData models.ProcessedData
+	if shouldError {
+		processReq.Email = ""
+	}
+
 	if err := s.dataServiceClient.Post(ctx, "/process", processReq, &processedData); err != nil {
 		log.Error().Err(err).Int("user_id", userID).Msg("Failed to process user data")
 		metrics.Inc(metrics.ErrorTotal, prometheus.Labels{
