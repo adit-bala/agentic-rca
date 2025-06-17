@@ -42,7 +42,9 @@ PROMPT = (
     "     • Example: 'Find code related to error handling in user authentication'\n"
     "  4. Analyze the codebase agent's response\n"
     "  5. Propose the most plausible root cause and next steps\n"
-    " LIMIT TO 3 tool calls per response"
+    "Ask the codebase agent to answer the query, and then use the response to form your answer.\n"
+    "Continue calling the tool digger deeper into the issue or broaden your search until you have a good answer."
+    "Ideally you are able to refer to a specific line of code in the codebase to support your answer."
 )
 
 @function_tool
