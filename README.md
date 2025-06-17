@@ -21,6 +21,7 @@ This will start up a minikube environment and will deploy the microservices, obs
 
 In second terminal run
 ```
+cd agents/
 ./run_agents.sh --fresh --codebase=<codebase_path> # embeddings will be created from the codebase that is passed in for the github agent
 ```
 Ideally, the codebase path has the code that is deployed into the minikube cluster.
@@ -34,6 +35,7 @@ This will create multiple e2e requests through the microservices, sending the ne
 
 In third terminal 
 ```
+cd frontend/
 npm run dev
 ```
 to start the frontend. There are two pages, one to visualize the service dependency graph, and the second shows the alerts.
