@@ -122,15 +122,34 @@ func addK8sMeta(span *models.EnrichedSpan, resourceAttrs map[string]interface{})
 	}
 	ns := span.K8sMetadata.Namespace // empty string = all namespaces
 
+	// First try to find the service by name
 	svcs, err := k8sClient.CoreV1().Services(ns).List(
 		context.TODO(),
 		metav1.ListOptions{FieldSelector: "metadata.name=" + svcName},
 	)
 	if err != nil || len(svcs.Items) == 0 {
-		return err
+		// If service not found, try to find pods directly with the service name as label
+		pods, err := k8sClient.CoreV1().Pods(ns).List(
+			context.TODO(),
+			metav1.ListOptions{LabelSelector: "app=" + svcName},
+		)
+		if err != nil || len(pods.Items) == 0 {
+			return err
+		}
+		// Use the first pod's owner reference
+		if len(pods.Items[0].OwnerReferences) > 0 {
+			ref := pods.Items[0].OwnerReferences[0]
+			span.K8sMetadata = models.K8sMetadata{
+				Namespace: pods.Items[0].Namespace,
+				OwnerKind: ref.Kind,
+				OwnerName: ref.Name,
+				OwnerUID:  string(ref.UID),
+			}
+		}
+		return nil
 	}
-	svc := svcs.Items[0]
 
+	svc := svcs.Items[0]
 	selector := labels.SelectorFromSet(svc.Spec.Selector).String()
 	pods, err := k8sClient.CoreV1().Pods(svc.Namespace).List(
 		context.TODO(),

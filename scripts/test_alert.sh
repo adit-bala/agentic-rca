@@ -3,44 +3,44 @@
 # Alert payload as a JSON string
 ALERT_PAYLOAD='{
   "version": "4",
-  "groupKey": "{}:{alertname=\"HighErrorRate\"}",
+  "groupKey": "{}:{alertname=\"UserServiceInvalidRequests\"}",
   "status": "firing",
   "receiver": "webhook-receiver",
   "groupLabels": {
-    "alertname": "HighErrorRate",
-    "severity": "critical"
+    "alertname": "UserServiceInvalidRequests",
+    "severity": "warning"
   },
   "commonLabels": {
-    "alertname": "HighErrorRate",
-    "severity": "critical",
-    "service": "data-service",
+    "alertname": "UserServiceInvalidRequests",
+    "severity": "warning",
+    "service": "user-service",
     "type": "invalid_request",
     "namespace": "simple-microservices",
-    "pod": "data-service-7d8f9b6c5-4x3y2"
+    "pod": "user-service-789cf74b5b-4bxbg"
   },
   "commonAnnotations": {
-    "summary": "High error rate detected",
-    "description": "Service data-service has error rate above 5% for error type invalid_request"
+    "summary": "Invalid requests detected in user service",
+    "description": "User service is receiving invalid requests. Check the request format and validation."
   },
   "externalURL": "http://alertmanager:9093",
   "alerts": [
     {
       "status": "firing",
       "labels": {
-        "alertname": "HighErrorRate",
-        "severity": "critical",
-        "service": "data-service",
+        "alertname": "UserServiceInvalidRequests",
+        "severity": "warning",
+        "service": "user-service",
         "type": "invalid_request",
         "namespace": "simple-microservices",
-        "pod": "data-service-7d8f9b6c5-4x3y2"
+        "pod": "user-service-789cf74b5b-4bxbg"
       },
       "annotations": {
-        "summary": "High error rate detected",
-        "description": "Service data-service has error rate above 5% for error type invalid_request"
+        "summary": "Invalid requests detected in user service",
+        "description": "User service is receiving invalid requests. Check the request format and validation."
       },
-      "startsAt": "2024-03-20T14:20:00Z",
+      "startsAt": "2024-06-16T20:00:00Z",
       "endsAt": "0001-01-01T00:00:00Z",
-      "generatorURL": "http://prometheus:9090/graph?g0.expr=sum%28rate%28errors_total%5B5m%5D%29%29+by+%28service%2C+type%29+%2F+sum%28rate%28api_requests_total%5B5m%5D%29%29+by+%28service%29+%3E+0.05&g0.tab=1"
+      "generatorURL": "http://prometheus:9090/graph?g0.expr=sum%28rate%28errors_total%7Bservice%3D%22user-service%22%2Ctype%3D%22invalid_request%22%7D%5B5m%5D%29%29+%3E+0&g0.tab=1"
     }
   ]
 }'
